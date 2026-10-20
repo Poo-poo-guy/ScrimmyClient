@@ -2,37 +2,22 @@
 	"schemaVersion": 1,
 	"id": "scrimmyclient",
 	"version": "${version}",
-	"name": "ScrimmyClient",
-	"description": "This is an example description! Tell everyone what your mod is about!",
-	"authors": [
-		"Me!"
-	],
-	"contact": {
-		"homepage": "https://fabricmc.net/",
-		"sources": "https://github.com/FabricMC/fabric-example-mod"
-	},
+	"name": "Scrimmy Client",
+	"description": "A customizable client for Minecraft anarchy servers.",
+	"authors": ["Scrimmy Client contributors"],
+	"contact": {"sources": "https://github.com/Poo-poo-guy/ScrimmyClient"},
 	"license": "CC0-1.0",
 	"icon": "assets/scrimmyclient/icon.png",
-	"environment": "*",
+	"environment": "client",
 	"entrypoints": {
-		"main": [
-			"scrimmyclient.ScrimmyClient"
-		],
 		"client": [
-			"scrimmyclient.client.ScrimmyClientClient"
+			"com.scrimmy.client.ScrimmyClient"
 		]
 	},
-	"mixins": [
-		"scrimmyclient.mixins.json",
-		{
-			"config": "scrimmyclient.client.mixins.json",
-			"environment": "client"
-		}
-	],
 	"depends": {
 		"fabricloader": ">=0.19.5",
 		"minecraft": "~1.21.11",
-		"java": ">=21",
+		"java": ">=25",
 		"fabric-api": "*"
 	}
 }
