@@ -3,14 +3,18 @@ package com.scrimmy.client.config;
 import com.google.gson.*;
 import com.scrimmy.client.module.Module;
 import com.scrimmy.client.module.ModuleManager;
+import com.scrimmy.client.module.Category;
 import com.scrimmy.client.setting.*;
 import com.scrimmy.client.theme.Theme;
+import com.scrimmy.client.theme.PanelState;
 import net.fabricmc.loader.api.FabricLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.util.EnumMap;
+import java.util.Map;
 
 public final class ConfigStore {
     private static final Logger LOG = LoggerFactory.getLogger("ScrimmyClient");
@@ -18,6 +22,7 @@ public final class ConfigStore {
     private final Path path = FabricLoader.getInstance().getConfigDir().resolve("scrimmy-client.json");
     private final Theme theme;
     private final ModuleManager modules;
+    private final Map<Category, PanelState> panels = new EnumMap<>(Category.class);
     private boolean loading;
     private boolean dirty;
     private long lastChange;
@@ -25,11 +30,20 @@ public final class ConfigStore {
 
     public ConfigStore(Theme theme, ModuleManager modules) {
         this.theme = theme; this.modules = modules;
+        resetPanels();
         theme.onChange(this::changed);
         modules.all().forEach(m -> m.onChange(this::changed));
     }
     public int guiKey() { return guiKey; }
     public void guiKey(int key) { if (guiKey != key) { guiKey = key; changed(); } }
+    public PanelState panel(Category category) { return panels.get(category); }
+    public void panel(Category category, PanelState state) {
+        if (!state.equals(panels.put(category, state))) changed();
+    }
+    private void resetPanels() {
+        for (Category category : Category.values())
+            panels.put(category, new PanelState(category.ordinal() / 3.0, 0.08, true));
+    }
 
     private void changed() {
         if (loading) return;
@@ -59,8 +73,20 @@ public final class ConfigStore {
                 for (Setting<?> setting : module.settings()) readSetting(values, setting);
             }
             if (profile.has("guiKey")) guiKey = profile.get("guiKey").getAsInt();
+            JsonObject layout = object(profile, "panels");
+            for (Category category : Category.values()) {
+                JsonObject entry = object(layout, category.name());
+                PanelState fallback = panels.get(category);
+                try {
+                    panels.put(category, new PanelState(
+                        entry.has("x") ? entry.get("x").getAsDouble() : fallback.x(),
+                        entry.has("y") ? entry.get("y").getAsDouble() : fallback.y(),
+                        entry.has("open") ? entry.get("open").getAsBoolean() : fallback.open()));
+                } catch (RuntimeException ignored) { /* Preserve this panel's default. */ }
+            }
         } catch (Exception e) {
             theme.reset();
+            resetPanels();
             guiKey = 344;
             for (Module module : modules.all()) {
                 module.enabled(false);
@@ -74,6 +100,7 @@ public final class ConfigStore {
     public void reset() {
         loading = true;
         theme.reset();
+        resetPanels();
         guiKey = 344;
         for (Module module : modules.all()) {
             module.enabled(false);
@@ -89,6 +116,14 @@ public final class ConfigStore {
         dirty = false;
         JsonObject profile = new JsonObject();
         profile.addProperty("guiKey", guiKey);
+        JsonObject layout = new JsonObject();
+        for (Category category : Category.values()) {
+            PanelState state = panels.get(category);
+            JsonObject entry = new JsonObject();
+            entry.addProperty("x", state.x()); entry.addProperty("y", state.y()); entry.addProperty("open", state.open());
+            layout.add(category.name(), entry);
+        }
+        profile.add("panels", layout);
         JsonObject themeJson = new JsonObject();
         for (Setting<?> setting : theme.settings()) writeSetting(themeJson, setting);
         profile.add("theme", themeJson);
