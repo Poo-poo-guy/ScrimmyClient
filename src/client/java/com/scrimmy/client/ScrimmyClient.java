@@ -11,20 +11,25 @@ import net.minecraft.client.Minecraft;
 import org.lwjgl.glfw.GLFW;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
 
 public final class ScrimmyClient implements ClientModInitializer {
     public static final Theme THEME = new Theme();
     public static final ModuleManager MODULES = new ModuleManager();
     public static final ConfigStore CONFIG = new ConfigStore(THEME, MODULES);
     private final Map<Integer, Boolean> lastKeys = new HashMap<>();
+    private final Set<Integer> sampledKeys = new HashSet<>(), pressedKeys = new HashSet<>();
 
     @Override public void onInitializeClient() {
         CONFIG.load();
+        MODULES.all().forEach(Module::initialize);
         ClientTickEvents.END_CLIENT_TICK.register(this::tick);
     }
 
     private void tick(Minecraft client) {
         if (client.getWindow() == null) return;
+        sampledKeys.clear(); pressedKeys.clear();
         int guiKey = CONFIG.guiKey();
         if (pressed(client, guiKey) && client.screen == null) client.setScreen(new ClickGui(THEME, MODULES, CONFIG));
         for (Module module : MODULES.all()) {
@@ -37,9 +42,11 @@ public final class ScrimmyClient implements ClientModInitializer {
 
     private boolean pressed(Minecraft client, int key) {
         if (key < 0 || key > GLFW.GLFW_KEY_LAST) return false;
+        if (!sampledKeys.add(key)) return pressedKeys.contains(key);
         boolean down = GLFW.glfwGetKey(client.getWindow().handle(), key) == GLFW.GLFW_PRESS;
         boolean wasDown = lastKeys.getOrDefault(key, false);
         lastKeys.put(key, down);
+        if (down && !wasDown) pressedKeys.add(key);
         return down && !wasDown;
     }
 }

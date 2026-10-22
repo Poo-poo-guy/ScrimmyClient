@@ -1,6 +1,8 @@
 package com.scrimmy.client.module;
 
 import com.scrimmy.client.setting.Setting;
+import com.scrimmy.client.setting.GroupSetting;
+import com.google.gson.JsonObject;
 import net.minecraft.client.Minecraft;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -14,11 +16,28 @@ public abstract class Module {
     private boolean enabled;
     private int keybind = -1;
     private Runnable onChange = () -> {};
+    private GroupSetting currentGroup;
 
     protected Module(String name, String description, Category category) {
         this.name = name; this.description = description; this.category = category;
     }
-    protected <T extends Setting<?>> T add(T setting) { settings.add(setting); return setting; }
+    protected <T extends Setting<?>> T add(T setting) {
+        setting.group(currentGroup);
+        settings.add(setting);
+        setting.onChange(() -> { onSettingChanged(setting); onChange.run(); });
+        return setting;
+    }
+    protected void group(String key, String label, boolean open) {
+        currentGroup = null;
+        currentGroup = add(new GroupSetting(key, label, open));
+    }
+    protected void onSettingChanged(Setting<?> setting) {}
+    protected void changed() { onChange.run(); }
+    public void beginRestore() {}
+    public void endRestore() {}
+    public JsonObject extraConfig() { return new JsonObject(); }
+    public void extraConfig(JsonObject json) {}
+    public void initialize() {}
     public String name() { return name; }
     public String description() { return description; }
     public Category category() { return category; }
@@ -28,7 +47,6 @@ public abstract class Module {
     public void keybind(int key) { if (keybind != key) { keybind = key; onChange.run(); } }
     public void onChange(Runnable callback) {
         onChange = callback;
-        settings.forEach(s -> s.onChange(callback));
     }
     public void enabled(boolean value) {
         if (enabled == value) return;

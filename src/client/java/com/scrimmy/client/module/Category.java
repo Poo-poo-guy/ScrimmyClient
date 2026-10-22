@@ -1,7 +1,7 @@
 package com.scrimmy.client.module;
 
 public enum Category {
-    COMBAT("Combat"), RENDER("Render"), CLIENT("Client"), BASEFINDING("Basefinding");
+    COMBAT("Combat"), RENDER("Render"), CLIENT("Client"), BASEFINDING("Basefinding"), VISUAL("Visual");
 
     private final String title;
     Category(String title) { this.title = title; }
