@@ -1,6 +1,7 @@
 package com.scrimmy.client.module;
 
 import com.scrimmy.client.module.combat.AutoTotem;
+import com.scrimmy.client.module.visual.HitParticles;
 import net.minecraft.client.Minecraft;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -20,10 +21,15 @@ public final class ModuleManager {
             categoryViews.put(category, Collections.unmodifiableList(entries));
         }
         register(new AutoTotem());
+        register(new HitParticles());
     }
     private void register(Module module) {
         modules.add(module);
         categories.get(module.category()).add(module);
+    }
+    public <T extends Module> T find(Class<T> type) {
+        for (Module module : modules) if (type.isInstance(module)) return type.cast(module);
+        return null;
     }
     public List<Module> all() { return modulesView; }
     public List<Module> in(Category category) { return categoryViews.get(category); }

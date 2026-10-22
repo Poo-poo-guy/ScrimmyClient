@@ -8,6 +8,7 @@ public abstract class Setting<T> {
     private final T defaultValue;
     private T value;
     private Runnable onChange = () -> {};
+    private GroupSetting group;
 
     protected Setting(String key, String label, T defaultValue) {
         this.key = key;
@@ -21,6 +22,8 @@ public abstract class Setting<T> {
     public T get() { return value; }
     public T defaultValue() { return defaultValue; }
     public void onChange(Runnable callback) { this.onChange = callback; }
+    public GroupSetting group() { return group; }
+    public void group(GroupSetting group) { this.group = group; }
 
     public void set(T next) {
         T safe = sanitize(next);

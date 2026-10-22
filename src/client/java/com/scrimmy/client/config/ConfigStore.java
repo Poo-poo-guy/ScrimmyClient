@@ -42,7 +42,7 @@ public final class ConfigStore {
     }
     private void resetPanels() {
         for (Category category : Category.values())
-            panels.put(category, new PanelState(category.ordinal() / 3.0, 0.08, true));
+            panels.put(category, new PanelState(0, 0, true, true));
     }
 
     private void changed() {
@@ -66,11 +66,14 @@ public final class ConfigStore {
             for (Setting<?> setting : theme.settings()) readSetting(themeJson, setting);
             JsonObject moduleJson = object(profile, "modules");
             for (Module module : modules.all()) {
+                module.beginRestore();
                 JsonObject entry = object(moduleJson, module.name());
                 if (entry.has("enabled")) module.enabled(entry.get("enabled").getAsBoolean());
                 if (entry.has("keybind")) module.keybind(entry.get("keybind").getAsInt());
                 JsonObject values = object(entry, "settings");
                 for (Setting<?> setting : module.settings()) readSetting(values, setting);
+                module.extraConfig(object(entry, "extra"));
+                module.endRestore();
             }
             if (profile.has("guiKey")) guiKey = profile.get("guiKey").getAsInt();
             JsonObject layout = object(profile, "panels");
@@ -81,7 +84,8 @@ public final class ConfigStore {
                     panels.put(category, new PanelState(
                         entry.has("x") ? entry.get("x").getAsDouble() : fallback.x(),
                         entry.has("y") ? entry.get("y").getAsDouble() : fallback.y(),
-                        entry.has("open") ? entry.get("open").getAsBoolean() : fallback.open()));
+                        entry.has("open") ? entry.get("open").getAsBoolean() : fallback.open(),
+                        entry.has("automatic") ? entry.get("automatic").getAsBoolean() : entry.isEmpty()));
                 } catch (RuntimeException ignored) { /* Preserve this panel's default. */ }
             }
         } catch (Exception e) {
@@ -91,7 +95,9 @@ public final class ConfigStore {
             for (Module module : modules.all()) {
                 module.enabled(false);
                 module.keybind(-1);
+                module.beginRestore();
                 module.settings().forEach(Setting::reset);
+                module.endRestore();
             }
             LOG.warn("Could not load Scrimmy Client config; using defaults", e);
         } finally { loading = false; }
@@ -105,7 +111,9 @@ public final class ConfigStore {
         for (Module module : modules.all()) {
             module.enabled(false);
             module.keybind(-1);
+            module.beginRestore();
             module.settings().forEach(Setting::reset);
+            module.endRestore();
         }
         loading = false;
         save();
@@ -120,7 +128,7 @@ public final class ConfigStore {
         for (Category category : Category.values()) {
             PanelState state = panels.get(category);
             JsonObject entry = new JsonObject();
-            entry.addProperty("x", state.x()); entry.addProperty("y", state.y()); entry.addProperty("open", state.open());
+            entry.addProperty("x", state.x()); entry.addProperty("y", state.y()); entry.addProperty("open", state.open()); entry.addProperty("automatic", state.automatic());
             layout.add(category.name(), entry);
         }
         profile.add("panels", layout);
@@ -135,6 +143,7 @@ public final class ConfigStore {
             JsonObject values = new JsonObject();
             for (Setting<?> setting : module.settings()) writeSetting(values, setting);
             entry.add("settings", values);
+            entry.add("extra", module.extraConfig());
             moduleJson.add(module.name(), entry);
         }
         profile.add("modules", moduleJson);
@@ -159,20 +168,6 @@ public final class ConfigStore {
         if (parent == null || !parent.has(key) || !parent.get(key).isJsonObject()) return new JsonObject();
         return parent.getAsJsonObject(key);
     }
-    private static void writeSetting(JsonObject object, Setting<?> setting) {
-        Object value = setting.get();
-        if (value instanceof Number n) object.addProperty(setting.key(), n);
-        else if (value instanceof Boolean b) object.addProperty(setting.key(), b);
-        else object.addProperty(setting.key(), String.valueOf(value));
-    }
-    private static void readSetting(JsonObject object, Setting<?> setting) {
-        if (!object.has(setting.key())) return;
-        try {
-            JsonElement value = object.get(setting.key());
-            if (setting instanceof BooleanSetting s) s.set(value.getAsBoolean());
-            else if (setting instanceof NumberSetting s) s.set(value.getAsDouble());
-            else if (setting instanceof ModeSetting s) s.set(value.getAsString());
-            else if (setting instanceof ColorSetting s) s.set(value.getAsInt());
-        } catch (RuntimeException ignored) { /* One bad field does not discard the rest. */ }
-    }
+    private static void writeSetting(JsonObject object, Setting<?> setting) { SettingCodec.write(object, setting); }
+    private static void readSetting(JsonObject object, Setting<?> setting) { SettingCodec.read(object, setting); }
 }
