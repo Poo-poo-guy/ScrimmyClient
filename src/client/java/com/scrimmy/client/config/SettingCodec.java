@@ -11,7 +11,10 @@ public final class SettingCodec {
     public static void write(JsonObject object, Setting<?> setting) {
         if (setting instanceof ActionSetting) return;
         Object value = setting.get();
-        if (setting instanceof GradientSetting gradient) {
+        if (setting instanceof BlockListSetting blocks) {
+            JsonObject entries = new JsonObject();
+            blocks.get().forEach(entries::addProperty); object.add(setting.key(), entries);
+        } else if (setting instanceof GradientSetting gradient) {
             JsonArray array = new JsonArray();
             for (GradientSetting.Stop stop : gradient.get()) {
                 JsonObject entry = new JsonObject(); entry.addProperty("position", stop.position()); entry.addProperty("color", stop.color());
@@ -28,7 +31,14 @@ public final class SettingCodec {
         if (!object.has(setting.key())) return;
         try {
             JsonElement value = object.get(setting.key());
-            if (setting instanceof BooleanSetting s) s.set(value.getAsBoolean());
+            if (setting instanceof BlockListSetting s) {
+                java.util.Map<String, Integer> entries = new java.util.LinkedHashMap<>();
+                for (var entry : value.getAsJsonObject().entrySet()) {
+                    try { entries.put(entry.getKey(), entry.getValue().getAsInt()); }
+                    catch (RuntimeException ignored) { }
+                }
+                s.set(entries);
+            } else if (setting instanceof BooleanSetting s) s.set(value.getAsBoolean());
             else if (setting instanceof GroupSetting s) s.set(value.getAsBoolean());
             else if (setting instanceof NumberSetting s) s.set(value.getAsDouble());
             else if (setting instanceof ModeSetting s) s.set(value.getAsString());

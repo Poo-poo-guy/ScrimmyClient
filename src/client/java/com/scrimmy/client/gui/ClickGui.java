@@ -15,6 +15,7 @@ import com.scrimmy.client.util.PanelLayout;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
+import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
@@ -46,6 +47,9 @@ public final class ClickGui extends Screen {
     private final Map<Setting<?>, Float> controlExpansion = new IdentityHashMap<>();
     private final Map<GroupSetting, Float> groupExpansion = new IdentityHashMap<>();
     private final Map<GradientSetting, Integer> gradientSelection = new IdentityHashMap<>();
+    private final Map<BlockListSetting, String> blockSelection = new IdentityHashMap<>();
+    private BlockListSetting editingBlocks;
+    private String blockInput = "", blockStatus = "Enter ID to add; click x to remove";
     private boolean gradientPosition, scrolling;
     private final float[] hsb = new float[3];
     private long lastFrame = System.nanoTime();
@@ -260,7 +264,7 @@ public final class ClickGui extends Screen {
     private void animateSetting(Setting<?> setting) {
         if (setting instanceof GroupSetting group)
             groupExpansion.put(group, animate(groupExpansion.getOrDefault(group, group.get() ? 1f : 0f), group.get() ? 1 : 0));
-        if (setting instanceof ModeSetting || setting instanceof MultiSelectSetting || setting instanceof GradientSetting)
+        if (setting instanceof ModeSetting || setting instanceof MultiSelectSetting || setting instanceof GradientSetting || setting instanceof BlockListSetting)
             controlExpansion.put(setting, animate(controlExpansion.getOrDefault(setting, 0f), expandedControls.getOrDefault(setting, false) ? 1 : 0));
     }
 
@@ -307,6 +311,22 @@ public final class ClickGui extends Screen {
             draw(g, expandedControls.getOrDefault(setting, false) ? "-" : "+", x + w - 15, y + 4, MUTED);
             int sy = y + SETTING;
             for (String option : multi.options()) { option(g, option, multi.get().contains(option), x, sy, w); sy += 20; }
+        } else if (setting instanceof BlockListSetting blocks) {
+            drawClipped(g, blocks.label(), x + 5, y + 4, w - 24, TEXT);
+            drawClipped(g, blocks.get().size() + " blocks", x + 5, y + 19, w - 10, drawnAccent);
+            draw(g, expandedControls.getOrDefault(setting, false) ? "-" : "+", x + w - 15, y + 4, MUTED);
+            int sy = y + SETTING;
+            rounded(g, x + 2, sy + 1, w - 4, 22, 4, 0x55557183);
+            drawClipped(g, editingBlocks == blocks ? blockInput + "_" : "+ registry ID (Enter)", x + 5, sy + 7, w - 10, drawnAccent);
+            if (hovered) tooltip = blockStatus;
+            sy += 26;
+            for (var entry : blocks.get().entrySet()) {
+                rounded(g, x + 3, sy + 4, 10, 10, 2, entry.getValue());
+                drawClipped(g, entry.getKey(), x + 17, sy + 6, w - 38, entry.getKey().equals(selectedBlock(blocks)) ? drawnAccent : TEXT);
+                draw(g, "x", x + w - 14, sy + 6, MUTED);
+                sy += 20;
+            }
+            if (!blocks.get().isEmpty()) renderColor(g, blocks.get().get(selectedBlock(blocks)), "Selected block", blocks, x, sy, w);
         } else if (setting instanceof NumberSetting number) {
             String value = numberLabel(number);
             int valueWidth = font.width(value);
@@ -336,6 +356,11 @@ public final class ClickGui extends Screen {
     private int selectedStop(GradientSetting setting) {
         return Math.max(0, Math.min(setting.get().size() - 1, gradientSelection.getOrDefault(setting, 0)));
     }
+    private String selectedBlock(BlockListSetting blocks) {
+        String id = blockSelection.get(blocks);
+        if (id == null || !blocks.get().containsKey(id)) id = blocks.get().isEmpty() ? "" : blocks.get().keySet().iterator().next();
+        return id;
+    }
     private void option(GuiGraphics g, String text, boolean selected, int x, int y, int w) {
         rounded(g, x + 2, y + 1, w - 4, 18, 4, selected ? 0x555f8b99 : 0x22557183);
         drawClipped(g, (selected ? "+ " : "  ") + text, x + 5, y + 6, w - 10, selected ? drawnAccent : MUTED);
@@ -358,7 +383,7 @@ public final class ClickGui extends Screen {
         if (w < 1) return;
         rounded(g, x, y, w, 3, 1, 0x775f7382);
         float target = (float)Math.max(0, Math.min(1, fraction));
-        float value = (key instanceof ColorSetting || key instanceof GradientSetting) ? target : animate(fills.getOrDefault(key, target), target);
+        float value = (key instanceof ColorSetting || key instanceof GradientSetting || key instanceof BlockListSetting) ? target : animate(fills.getOrDefault(key, target), target);
         fills.put(key, value);
         rounded(g, x, y, Math.max(1, (int)(w * value)), 3, 1, drawnAccent);
         rounded(g, x + (int)(w * value) - 3, y - 2, 6, 7, 3, 0xffe9fbff);
@@ -366,6 +391,7 @@ public final class ClickGui extends Screen {
 
     @Override public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         if (closing) return true;
+        editingBlocks = null;
         float mx = transform.local(event.x()), my = transform.local(event.y());
         Panel p = panelAt(mx, my);
         if (p == null) return false;
@@ -445,6 +471,18 @@ public final class ClickGui extends Screen {
             int row = (int)(my - y - SETTING) / 20;
             if (my < y + SETTING) expandedControls.put(setting, !expandedControls.getOrDefault(setting, false));
             else if (row >= 0 && row < multi.options().size()) multi.toggle(multi.options().get(row));
+        } else if (setting instanceof BlockListSetting blocks) {
+            float local = my - y;
+            if (local < SETTING) { expandedControls.put(setting, !expandedControls.getOrDefault(setting, false)); editingBlocks = null; }
+            else if (local < SETTING + 26) { editingBlocks = blocks; blockInput = ""; bindingModule = null; bindingGui = false; }
+            else {
+                int row = (int)(local - SETTING - 26) / 20;
+                if (row < blocks.get().size()) {
+                    String id = new ArrayList<>(blocks.get().keySet()).get(row);
+                    if (mx >= x + w - 22) { blocks.remove(id); activeSetting = null; }
+                    else blockSelection.put(blocks, id);
+                } else if (!blocks.get().isEmpty()) colorClick(p, blocks, x, y + SETTING + 26 + blocks.get().size() * 20, w, mx, my);
+            }
         } else if (setting instanceof NumberSetting number) {
             activeSetting = setting; activePanel = p;
             activeTrack = transform.track(x + 6, w - 12);
@@ -485,6 +523,7 @@ public final class ClickGui extends Screen {
     private void setColor(Setting<?> setting, int value) {
         if (setting instanceof ColorSetting color) color.set(value);
         else if (setting instanceof GradientSetting gradient) gradient.color(selectedStop(gradient), value);
+        else if (setting instanceof BlockListSetting blocks && !blocks.get().isEmpty()) blocks.put(selectedBlock(blocks), value);
     }
     private void updateGradientPosition(GradientSetting gradient, double screenX) {
         gradientSelection.put(gradient, gradient.position(selectedStop(gradient), activeTrack.fraction(screenX)));
@@ -500,7 +539,7 @@ public final class ClickGui extends Screen {
             if (scrolling) { updateScroll(activePanel, my); return true; }
             if (activeSetting instanceof NumberSetting number) updateNumber(number, event.x());
             else if (activeSetting instanceof GradientSetting gradient && gradientPosition) updateGradientPosition(gradient, event.x());
-            else if (activeSetting instanceof ColorSetting || activeSetting instanceof GradientSetting) updateColor(activeSetting, event.x());
+            else if (activeSetting instanceof ColorSetting || activeSetting instanceof GradientSetting || activeSetting instanceof BlockListSetting) updateColor(activeSetting, event.x());
             return true;
         }
         return super.mouseDragged(event, dx, dy);
@@ -523,6 +562,20 @@ public final class ClickGui extends Screen {
         return true;
     }
     @Override public boolean keyPressed(KeyEvent event) {
+        if (editingBlocks != null) {
+            if (event.key() == GLFW.GLFW_KEY_ESCAPE) editingBlocks = null;
+            else if (event.key() == GLFW.GLFW_KEY_BACKSPACE && !blockInput.isEmpty()) blockInput = blockInput.substring(0, blockInput.length() - 1);
+            else if (event.key() == GLFW.GLFW_KEY_ENTER || event.key() == GLFW.GLFW_KEY_KP_ENTER) {
+                if (editingBlocks.put(blockInput, 0xff58bd8b)) {
+                    blockSelection.put(editingBlocks, blockInput.contains(":") ? blockInput : "minecraft:" + blockInput);
+                    blockInput = ""; blockStatus = "Added. Select a block below to edit its color";
+                } else blockStatus = "Unknown block ID or list full (256 max)";
+            } else if (event.key() == GLFW.GLFW_KEY_V && (event.modifiers() & GLFW.GLFW_MOD_CONTROL) != 0) {
+                String pasted = minecraft.keyboardHandler.getClipboard();
+                if (pasted.length() <= 160) blockInput = pasted.trim();
+            }
+            return true;
+        }
         if (bindingModule != null) {
             bindingModule.keybind(event.key() == GLFW.GLFW_KEY_ESCAPE ? -1 : event.key());
             bindingModule = null; return true;
@@ -534,12 +587,18 @@ public final class ClickGui extends Screen {
         if (event.key() == config.guiKey() && event.key() != GLFW.GLFW_KEY_ESCAPE) { onClose(); return true; }
         return super.keyPressed(event);
     }
+    @Override public boolean charTyped(CharacterEvent event) {
+        if (editingBlocks == null) return super.charTyped(event);
+        int code = event.codepoint();
+        if (code < 128 && blockInput.length() < 160 && "abcdefghijklmnopqrstuvwxyz0123456789_:./-".indexOf(code) >= 0) blockInput += (char)code;
+        return true;
+    }
 
     private void updateNumber(NumberSetting number, double screenX) {
         number.set(number.min() + activeTrack.fraction(screenX) * (number.max() - number.min()));
     }
     private void updateColor(Setting<?> setting, double screenX) {
-        int color = setting instanceof ColorSetting c ? c.get() : ((GradientSetting)setting).get().get(selectedStop((GradientSetting)setting)).color();
+        int color = setting instanceof ColorSetting c ? c.get() : setting instanceof BlockListSetting blocks ? blocks.get().getOrDefault(selectedBlock(blocks), 0xff58bd8b) : ((GradientSetting)setting).get().get(selectedStop((GradientSetting)setting)).color();
         Color.RGBtoHSB((color >> 16) & 255, (color >> 8) & 255, color & 255, hsb);
         int alpha = color >>> 24;
         if (activeColorChannel == 3) alpha = (int)(activeTrack.fraction(screenX) * 255);
@@ -571,6 +630,7 @@ public final class ClickGui extends Screen {
         int height = SETTING;
         float expansion = controlExpansion.getOrDefault(setting, 0f);
         if (setting instanceof ColorSetting) height = COLOR;
+        else if (setting instanceof BlockListSetting blocks) height += Math.round((26 + blocks.get().size() * 20 + (blocks.get().isEmpty() ? 0 : COLOR)) * expansion);
         else if (setting instanceof GradientSetting) height = 60 + Math.round((34 + COLOR) * expansion);
         else if (setting instanceof ModeSetting mode) height += Math.round(mode.options().size() * 20 * expansion);
         else if (setting instanceof MultiSelectSetting multi) height += Math.round(multi.options().size() * 20 * expansion);

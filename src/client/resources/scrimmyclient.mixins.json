@@ -2,6 +2,6 @@
   "required": true,
   "package": "com.scrimmy.client.mixin",
   "compatibilityLevel": "JAVA_25",
-  "client": ["ClientPacketListenerMixin"],
+  "client": ["ClientPacketListenerMixin", "LevelChunkMixin"],
   "injectors": { "defaultRequire": 1 }
 }
