@@ -275,7 +275,7 @@ public final class ClickGui extends Screen {
         boolean hovered = inside(mx, my, x, y, w, h) && g.containsPointInScissor((int)(mx * scale), (int)(my * scale));
         float hover = animate(hovers.getOrDefault(setting, 0f), hovered ? 1 : 0);
         hovers.put(setting, hover);
-        if (hovered) tooltip = setting.label();
+        if (hovered) tooltip = setting.tooltip();
         if (hover > 0.01f) rounded(g, x, y + 1, w, h - 2, 5, ((int)(22 * hover) << 24) | 0xffffff);
         if (setting instanceof GroupSetting group) {
             rounded(g, x, y + 3, w, SETTING - 6, 5, 0x335f7c91);
@@ -687,12 +687,14 @@ public final class ClickGui extends Screen {
         if (tooltip != null && tooltip.equals(lastTooltip)) tooltipTime += dt;
         else { lastTooltip = tooltip; tooltipTime = 0; }
         if (tooltip == null || tooltipTime < 0.55f) return;
-        int w = Math.min(screenWidth - 10, font.width(tooltip) + 16);
+        int w = Math.min(Math.min(320, screenWidth - 10), font.width(tooltip) + 16);
+        var lines = font.split(Component.literal(tooltip), Math.max(1, w - 16));
+        int h = lines.size() * 11 + 12;
         int x = (int)clamp(mx + 9, 5, Math.max(5, screenWidth - w - 5));
-        int y = (int)clamp(my + 13, 5, Math.max(5, screenHeight - 29));
+        int y = (int)clamp(my + 13, 5, Math.max(5, screenHeight - h - 5));
         g.nextStratum();
-        rounded(g, x, y, w, 23, 6, 0xf0223343);
-        drawClipped(g, tooltip, x + 8, y + 7, w - 16, TEXT);
+        rounded(g, x, y, w, h, 6, 0xf0223343);
+        for (int i = 0; i < lines.size(); i++) g.drawString(font, lines.get(i), x + 8, y + 7 + i * 11, fade(TEXT), false);
     }
     private static String keyName(int key) {
         if (key < 0) return "None";

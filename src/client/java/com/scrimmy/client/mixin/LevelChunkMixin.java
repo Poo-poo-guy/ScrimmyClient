@@ -2,6 +2,7 @@ package com.scrimmy.client.mixin;
 
 import com.scrimmy.client.ScrimmyClient;
 import com.scrimmy.client.module.visual.BlockESPModule;
+import com.scrimmy.client.module.basefinding.Basefinding;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.state.BlockState;
@@ -19,5 +20,10 @@ abstract class LevelChunkMixin {
         if (ci.getReturnValue() == null || !(chunk.getLevel() instanceof ClientLevel level)) return;
         BlockESPModule module = ScrimmyClient.MODULES.find(BlockESPModule.class);
         if (module != null && module.enabled()) module.cache.changed(level, pos, chunk.getBlockState(pos));
+        Basefinding basefinding = ScrimmyClient.MODULES.find(Basefinding.class);
+        // Single-block and section-update packets both reach this setter. Above-band
+        // changes cannot affect a ChunkFinder snapshot and should not restart one.
+        if (basefinding != null && basefinding.scanner != null && pos.getY() < 64)
+            basefinding.scanner.changed(level, pos.getX() >> 4, pos.getZ() >> 4);
     }
 }
