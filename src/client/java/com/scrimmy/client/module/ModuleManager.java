@@ -3,6 +3,7 @@ package com.scrimmy.client.module;
 import com.scrimmy.client.module.combat.AutoTotem;
 import com.scrimmy.client.module.visual.HitParticles;
 import com.scrimmy.client.module.visual.BlockESPModule;
+import com.scrimmy.client.module.basefinding.Basefinding;
 import net.minecraft.client.Minecraft;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -24,6 +25,7 @@ public final class ModuleManager {
         register(new AutoTotem());
         register(new HitParticles());
         register(new BlockESPModule());
+        register(new Basefinding());
     }
     private void register(Module module) {
         modules.add(module);

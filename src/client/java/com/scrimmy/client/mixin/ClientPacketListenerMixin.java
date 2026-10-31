@@ -2,6 +2,8 @@ package com.scrimmy.client.mixin;
 
 import com.scrimmy.client.ScrimmyClient;
 import com.scrimmy.client.module.visual.HitParticles;
+import com.scrimmy.client.module.basefinding.Basefinding;
+import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.network.protocol.game.ClientboundDamageEventPacket;
@@ -13,6 +15,12 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(ClientPacketListener.class)
 abstract class ClientPacketListenerMixin {
+    @Inject(method = "handleLevelChunkWithLight", at = @At("TAIL"))
+    private void scrimmy$chunkChanged(ClientboundLevelChunkWithLightPacket packet, CallbackInfo ci) {
+        Basefinding module = ScrimmyClient.MODULES.find(Basefinding.class);
+        if (module != null && module.scanner != null)
+            module.scanner.changed(Minecraft.getInstance().level, packet.getX(), packet.getZ());
+    }
     @Inject(method = "handleDamageEvent", at = @At("TAIL"))
     private void scrimmy$damage(ClientboundDamageEventPacket packet, CallbackInfo ci) {
         HitParticles module = ScrimmyClient.MODULES.find(HitParticles.class);

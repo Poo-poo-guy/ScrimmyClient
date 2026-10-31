@@ -9,6 +9,7 @@ public abstract class Setting<T> {
     private T value;
     private Runnable onChange = () -> {};
     private GroupSetting group;
+    private String tooltip;
 
     protected Setting(String key, String label, T defaultValue) {
         this.key = key;
@@ -19,6 +20,8 @@ public abstract class Setting<T> {
 
     public String key() { return key; }
     public String label() { return label; }
+    public String tooltip() { return tooltip == null ? label : tooltip; }
+    public void tooltip(String text) { tooltip = text; }
     public T get() { return value; }
     public T defaultValue() { return defaultValue; }
     public void onChange(Runnable callback) { this.onChange = callback; }
