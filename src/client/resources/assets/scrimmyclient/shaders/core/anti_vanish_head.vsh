@@ -11,5 +11,5 @@ void main() {
     // The preview supplies a full perspective matrix; world projection and FOV are irrelevant.
     gl_Position = ModelViewMat * vec4(Position, 1.0);
     texCoord = UV0;
-    vertexColor = Color;
+    vertexColor = Color * ColorModulator;
 }

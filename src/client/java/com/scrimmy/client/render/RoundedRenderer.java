@@ -25,6 +25,45 @@ public final class RoundedRenderer {
 
     private RoundedRenderer() {}
 
+    /** Reusable glass-style panel for moving world labels. Its owner keeps one instance per marker. */
+    public static final class ReusablePanel {
+        private final PanelShape shadow = new PanelShape(2), fill = new PanelShape(0), border = new PanelShape(1);
+        public void draw(GuiGraphics g, int width, int height, int radius, int color, int outline, int shadowColor, ScreenRectangle viewport) {
+            shadow.update(g, width, height, radius, shadowColor, viewport);
+            fill.update(g, width, height, radius, color, viewport);
+            border.update(g, width, height, radius, outline, viewport);
+        }
+        private static final class PanelShape implements GuiElementRenderState {
+            private final int kind;
+            private final Matrix3x2f pose = new Matrix3x2f();
+            private int width, height, radius, color;
+            private ScreenRectangle viewport;
+            private PanelShape(int kind) { this.kind = kind; }
+            void update(GuiGraphics g, int width, int height, int radius, int color, ScreenRectangle viewport) {
+                this.width = width; this.height = height; this.radius = radius; this.color = color; this.viewport = viewport;
+                pose.set(g.pose());
+                if (kind == 2) pose.translate(0, 2);
+                g.guiRenderState.submitGuiElement(this);
+            }
+            @Override public RenderPipeline pipeline() { return SOLID; }
+            @Override public TextureSetup textureSetup() { return TextureSetup.noTexture(); }
+            @Override public ScreenRectangle scissorArea() { return viewport; }
+            // A conservative cached viewport avoids constructing a moving rectangle each frame.
+            @Override public ScreenRectangle bounds() { return viewport; }
+            @Override public void buildVertices(VertexConsumer vertices) {
+                int pad = kind == 2 ? 8 : 1;
+                vertex(vertices, -width / 2f - pad, -pad);
+                vertex(vertices, -width / 2f - pad, height + pad);
+                vertex(vertices, width / 2f + pad, height + pad);
+                vertex(vertices, width / 2f + pad, -pad);
+            }
+            private void vertex(VertexConsumer vertices, float x, float y) {
+                vertices.addVertexWith2DPose(pose, x, y).setColor(color).setUv(x, y - height / 2f)
+                    .setUv1(width, height).setUv2(radius * 16, kind);
+            }
+        }
+    }
+
     private static RenderPipeline pipeline(boolean glass) {
         RenderPipeline.Builder builder = RenderPipeline.builder(RenderPipelines.GUI_SNIPPET)
             .withLocation(Identifier.fromNamespaceAndPath("scrimmyclient", glass ? "pipeline/glass" : "pipeline/rounded"))

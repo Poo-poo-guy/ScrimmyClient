@@ -19,6 +19,7 @@ import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.resources.Identifier;
 import org.joml.Matrix4f;
+import org.joml.Matrix3x2f;
 import org.joml.Vector3f;
 import org.joml.Vector4f;
 import org.lwjgl.system.MemoryUtil;
@@ -32,7 +33,7 @@ public final class AntiVanishHeadRenderer extends PictureInPictureRenderer<AntiV
     private static final int SKIN_SIZE = 64, FACE_SIZE = 8, HAT_U_OFFSET = 32;
     private static final int VERTICES_PER_CUBE = 24, INDICES_PER_CUBE = 36;
     private static final int BUFFER_BYTES = VERTICES_PER_CUBE * 2 * DefaultVertexFormat.POSITION_TEX_COLOR.getVertexSize();
-    private static final RenderPipeline HEAD = pipeline(false), HAT = pipeline(true);
+    private static final RenderPipeline HEAD = pipeline(false, false), HAT = pipeline(true, false), GHOST = pipeline(false, true);
     // x points right, y points up, and +z is the face looking at the camera.
     // Each face goes top-left, bottom-left, bottom-right, top-right, counterclockwise from outside.
     static final float[][] FACE_CORNERS = {
@@ -51,15 +52,15 @@ public final class AntiVanishHeadRenderer extends PictureInPictureRenderer<AntiV
     private MappableRingBuffer gpu;
 
     public AntiVanishHeadRenderer(MultiBufferSource.BufferSource buffers) { super(buffers); }
-    private static RenderPipeline pipeline(boolean hat) {
+    private static RenderPipeline pipeline(boolean hat, boolean ghost) {
         var builder = RenderPipeline.builder()
-            .withLocation(Identifier.fromNamespaceAndPath("scrimmyclient", hat ? "pipeline/anti_vanish_hat" : "pipeline/anti_vanish_head"))
+            .withLocation(Identifier.fromNamespaceAndPath("scrimmyclient", ghost ? "pipeline/logout_ghost_head" : hat ? "pipeline/anti_vanish_hat" : "pipeline/anti_vanish_head"))
             .withVertexShader(Identifier.fromNamespaceAndPath("scrimmyclient", "core/anti_vanish_head"))
             .withFragmentShader(Identifier.fromNamespaceAndPath("scrimmyclient", "core/anti_vanish_head"))
             .withUniform("DynamicTransforms", UniformType.UNIFORM_BUFFER).withSampler("Sampler0")
             .withVertexFormat(DefaultVertexFormat.POSITION_TEX_COLOR, VertexFormat.Mode.QUADS)
             .withCull(true).withDepthWrite(!hat).withDepthTestFunction(DepthTestFunction.LEQUAL_DEPTH_TEST);
-        if (hat) builder.withBlend(BlendFunction.TRANSLUCENT);
+        if (hat || ghost) builder.withBlend(BlendFunction.TRANSLUCENT);
         return RenderPipelines.register(builder.build());
     }
     @Override public Class<HeadState> getRenderStateClass() { return HeadState.class; }
@@ -77,6 +78,7 @@ public final class AntiVanishHeadRenderer extends PictureInPictureRenderer<AntiV
             AntiVanishEffect.HEAD_NEAR_PLANE, AntiVanishEffect.HEAD_FAR_PLANE)
             .translate(0, 0, -state.distance()).rotateZ(state.roll()).rotateX(state.pitch()).rotateY(state.yaw()).scale(state.size());
         // This shader uses ModelViewMat as a complete projection * view * model matrix.
+        white.w = state.opacity();
         var uniforms = RenderSystem.getDynamicUniforms().writeTransform(transform, white, zero, identity);
         var encoder = RenderSystem.getDevice().createCommandEncoder();
         try (var mapped = encoder.mapBuffer(gpu.currentBuffer().slice(0, BUFFER_BYTES), false, true)) { mapped.data().put(bytes); bytes.rewind(); }
@@ -86,7 +88,7 @@ public final class AntiVanishHeadRenderer extends PictureInPictureRenderer<AntiV
         // These are the vanilla PIP targets, never the world's depth buffer. Walls cannot hide the head.
         try (var pass = encoder.createRenderPass(() -> "Scrimmy AntiVanish head", RenderSystem.outputColorTextureOverride, OptionalInt.empty(),
                 RenderSystem.outputDepthTextureOverride, OptionalDouble.empty())) {
-            pass.setPipeline(HEAD);
+            pass.setPipeline(state.opacity() < 1 ? GHOST : HEAD);
             pass.setUniform("DynamicTransforms", uniforms);
             pass.bindTexture("Sampler0", skin, RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST));
             pass.setVertexBuffer(0, gpu.currentBuffer()); pass.setIndexBuffer(indices, sequential.type());
@@ -117,13 +119,38 @@ public final class AntiVanishHeadRenderer extends PictureInPictureRenderer<AntiV
         if (bytes != null) MemoryUtil.memFree(bytes); bytes = null;
         super.close();
     }
-    public record HeadState(Identifier texture, int width, int height, float size, float distance, float yaw, float pitch, float roll,
-                            ScreenRectangle scissorArea) implements PictureInPictureRenderState {
+    /** Pooled markers can move/scale this state without resizing their PIP texture every frame. */
+    public static final class HeadState implements PictureInPictureRenderState {
+        private Identifier texture;
+        private final int width, height;
+        private float size, distance, yaw, pitch, roll, opacity = 1;
+        private final Matrix3x2f pose = new Matrix3x2f();
+        private ScreenRectangle scissor, bounds;
+        public HeadState(Identifier texture, int width, int height, float size, float distance, float yaw, float pitch, float roll, ScreenRectangle scissor) {
+            this.texture = texture; this.width = width; this.height = height; this.size = size; this.distance = distance;
+            this.yaw = yaw; this.pitch = pitch; this.roll = roll; this.scissor = scissor;
+        }
+        public void marker(Identifier texture, float x, float y, float displaySize, float yaw, float pitch, float opacity, ScreenRectangle viewport) {
+            this.texture = texture; this.yaw = yaw; this.pitch = pitch; this.opacity = opacity;
+            pose.identity().translate(x - displaySize / 2, y - displaySize / 2).scale(displaySize / width);
+            scissor = bounds = viewport;
+        }
+        public Identifier texture() { return texture; }
+        public int width() { return width; }
+        public int height() { return height; }
+        public float size() { return size; }
+        public float distance() { return distance; }
+        public float yaw() { return yaw; }
+        public float pitch() { return pitch; }
+        public float roll() { return roll; }
+        public float opacity() { return opacity; }
+        @Override public Matrix3x2f pose() { return pose; }
+        @Override public ScreenRectangle scissorArea() { return scissor; }
         @Override public int x0() { return 0; }
         @Override public int y0() { return 0; }
         @Override public int x1() { return width; }
         @Override public int y1() { return height; }
         @Override public float scale() { return 1; }
-        @Override public ScreenRectangle bounds() { return PictureInPictureRenderState.getBounds(x0(), y0(), x1(), y1(), scissorArea); }
+        @Override public ScreenRectangle bounds() { return bounds != null ? bounds : PictureInPictureRenderState.getBounds(x0(), y0(), x1(), y1(), scissor); }
     }
 }

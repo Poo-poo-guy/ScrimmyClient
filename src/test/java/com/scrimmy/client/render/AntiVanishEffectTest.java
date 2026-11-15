@@ -8,6 +8,19 @@ import java.nio.ByteOrder;
 import static org.junit.jupiter.api.Assertions.*;
 
 class AntiVanishEffectTest {
+    @Test void sharedMarkerPlacementPreservesTheOriginalWarningDefaults() {
+        var original = new AntiVanishHeadRenderer.HeadState(null, 320, 180, 1, 3, 0, 0, 0, null);
+        assertEquals(1, original.opacity()); assertEquals(320, original.x1()); assertEquals(180, original.y1());
+        assertEquals(new org.joml.Matrix3x2f(), original.pose());
+        var marker = new AntiVanishHeadRenderer.HeadState(null, 64, 64, 1, 2.5f, 0, 0, 0, null);
+        var viewport = new net.minecraft.client.gui.navigation.ScreenRectangle(0, 0, 320, 180);
+        marker.marker(null, 100, 50, 32, 1, .12f, .4f, viewport);
+        var center = marker.pose().transformPosition(32, 32, new org.joml.Vector2f());
+        assertEquals(100, center.x); assertEquals(50, center.y);
+        assertEquals(64, marker.width(), "Moving or scaling a marker must not resize its render target");
+        assertSame(viewport, marker.bounds()); assertEquals(.4f, marker.opacity());
+        assertEquals(1, original.opacity(), "Ghost alpha cannot leak into the warning state");
+    }
     @Test void textFadesFollowTheRequestedTimeline() {
         assertEquals(0, title(1.25));
         assertEquals(.5, title(1.5), 1e-9);
