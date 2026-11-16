@@ -72,6 +72,18 @@ class GeodeAnalysisTest {
     }
 
     @Test
+    void nearbyBuddingAcrossABrokenShellIsOneVoteWithMeasuredBounds() {
+        byte[] b = volume();
+        put(b, 24, 16, 24, BUDDING); put(b, 26, 16, 24, BUDDING);
+        put(b, 24, 17, 24, AIR); put(b, 26, 17, 24, AIR);
+        var geodes = analyze(input(b, 0));
+        assertEquals(1, geodes.size());
+        assertEquals(2, geodes.getFirst().stats().budding());
+        assertEquals(8, geodes.getFirst().minX());
+        assertEquals(11, geodes.getFirst().maxX());
+    }
+
+    @Test
     void unloadedBoundariesAndUnexposedGeodesAreNotScored() {
         byte[] b = volume();
         put(b, 24, 16, 24, BUDDING);

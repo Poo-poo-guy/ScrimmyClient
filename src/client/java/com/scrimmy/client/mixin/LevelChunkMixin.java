@@ -21,9 +21,8 @@ abstract class LevelChunkMixin {
         BlockESPModule module = ScrimmyClient.MODULES.find(BlockESPModule.class);
         if (module != null && module.enabled()) module.cache.changed(level, pos, chunk.getBlockState(pos));
         Basefinding basefinding = ScrimmyClient.MODULES.find(Basefinding.class);
-        // Single-block and section-update packets both reach this setter. Above-band
-        // changes cannot affect a ChunkFinder snapshot and should not restart one.
-        if (basefinding != null && basefinding.scanner != null && pos.getY() < 64)
+        // Single-block and section-update packets both reach this setter.
+        if (basefinding != null && basefinding.scanner != null)
             basefinding.scanner.changed(level, pos.getX() >> 4, pos.getZ() >> 4);
     }
 }

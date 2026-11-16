@@ -121,7 +121,7 @@ public final class BlockEspCache {
     public void tick(Minecraft mc) {
         if (world != mc.level) { clear(); world = mc.level; }
         if (world == null || mc.player == null || mc.isPaused()) return;
-        long start = System.nanoTime(), budget = (long)(module.scanSpeed.get() * 1_000_000);
+        long start = System.nanoTime(), budget = (long)(BlockESPModule.SCAN_SPEED * 1_000_000);
         playerX = mc.player.getX(); playerY = mc.player.getY(); playerZ = mc.player.getZ();
         int cx = mc.player.blockPosition().getX() >> 4, cz = mc.player.blockPosition().getZ() >> 4;
         int r = (int)Math.ceil(module.range.get() / 16);
@@ -142,7 +142,7 @@ public final class BlockEspCache {
         }
         // Nearest selection also resumes under the deadline; no full-cache sort on a tick/frame.
         if (!selecting) {
-            resetSelection(); selecting = true; selectionCap = module.maxBlocks.get().intValue();
+            resetSelection(); selecting = true; selectionCap = (int) BlockESPModule.MAX_BLOCKS;
             selectionX = playerX; selectionY = playerY; selectionZ = playerZ;
         }
         long end = start + budget;
@@ -242,7 +242,7 @@ public final class BlockEspCache {
     private void publish() {
         for (int i = 0; i < visualCount; i++) visuals[i].wanted = false;
         Arrays.sort(nearest, 0, nearestCount, nearestOrder);
-        for (int i = 0; i < Math.min(nearestCount, module.maxBlocks.get().intValue()); i++) {
+        for (int i = 0; i < Math.min(nearestCount, (int) BlockESPModule.MAX_BLOCKS); i++) {
             Candidate candidate = nearest[i];
             if (!candidate.validity.active) continue;
             Visual visual = visible.get(candidate.pos);

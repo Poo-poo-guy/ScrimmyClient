@@ -26,10 +26,10 @@ public final class Freecam extends Module {
 
     public Freecam() {
         super("Freecam", "Fly the camera through walls; scroll to change speed", Category.RENDER);
-        group("movement", "Movement", true);
         speed = add(new NumberSetting("speed", "Speed (blocks/s)", FreecamMotion.DEFAULT_SPEED, FreecamMotion.MIN_SPEED, FreecamMotion.MAX_SPEED, FreecamMotion.SPEED_STEP));
         speed.tooltip("Scroll up to speed up, down to slow down. Movement follows your normal key bindings.");
         sprintMultiplier = add(new NumberSetting("sprintMultiplier", "Sprint speed multiplier", 3, 1, 10, .5));
+        sprintMultiplier.tooltip("Move this much faster while holding sprint.");
     }
     public static Freecam current() { return ScrimmyClient.MODULES.find(Freecam.class); }
     @Override public void initialize() {

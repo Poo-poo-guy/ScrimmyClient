@@ -13,6 +13,7 @@ public final class GeodeAnalysis {
             SHELL = 5,
             MAN_MADE = 6;
     public static final int STAGE = 16;
+    public static final int BUDDING_LINK_RADIUS = 3;
     // Direction order agrees with Direction.get3DDataValue(): down, up, north, south, west, east.
     private static final int[] DX = {0, 0, 0, 0, -1, 1},
             DY = {-1, 1, 0, 0, 0, 0},
@@ -42,7 +43,17 @@ public final class GeodeAnalysis {
         }
     }
 
-    public record Geode(int x, int y, int z, GeodeScoring.Stats stats) {
+    public record Geode(int x, int y, int z, GeodeScoring.Stats stats,
+            int minX, int minY, int minZ, int maxX, int maxY, int maxZ) {
+        public Geode {
+            if (maxX <= minX || maxY <= minY || maxZ <= minZ) {
+                minX = x; minY = y; minZ = z; maxX = x + 1; maxY = y + 1; maxZ = z + 1;
+            }
+        }
+        /** Older logs and synthetic samples only stored an anchor. */
+        public Geode(int x, int y, int z, GeodeScoring.Stats stats) {
+            this(x, y, z, stats, x, y, z, x + 1, y + 1, z + 1);
+        }
         public long id() {
             return ((long) x & 0x3ffffffL) << 38
                     | ((long) z & 0x3ffffffL) << 12
@@ -68,6 +79,7 @@ public final class GeodeAnalysis {
             int budding = 0, exposedBudding = 0, exposed = 0, empty = 0;
             int[] stages = new int[4];
             int anchor = Integer.MAX_VALUE;
+            int minX = v.width, minY = v.height, minZ = v.depth, maxX = 0, maxY = 0, maxZ = 0;
             boolean target = false, incomplete = false, made = false;
             while (head < tail) {
                 if ((head & 1023) == 0 && Thread.currentThread().isInterrupted()) return List.of();
@@ -76,6 +88,8 @@ public final class GeodeAnalysis {
                         z = (index / v.width) % v.depth,
                         y = index / (v.width * v.depth);
                 int kind = v.blocks[index];
+                minX = Math.min(minX, x); minY = Math.min(minY, y); minZ = Math.min(minZ, z);
+                maxX = Math.max(maxX, x + 1); maxY = Math.max(maxY, y + 1); maxZ = Math.max(maxZ, z + 1);
                 if (kind == BUDDING) {
                     budding++;
                     anchor = Math.min(anchor, index);
@@ -93,6 +107,16 @@ public final class GeodeAnalysis {
                         }
                     }
                     if (exposed > before) exposedBudding++;
+                    // Small gaps in a broken shell should not turn one geode into several votes.
+                    // Intact shells still provide the main connection across chunk borders.
+                    for (int oy = -BUDDING_LINK_RADIUS; oy <= BUDDING_LINK_RADIUS; oy++)
+                        for (int oz = -BUDDING_LINK_RADIUS; oz <= BUDDING_LINK_RADIUS; oz++)
+                            for (int ox = -BUDDING_LINK_RADIUS; ox <= BUDDING_LINK_RADIUS; ox++) {
+                                if (ox * ox + oy * oy + oz * oz > BUDDING_LINK_RADIUS * BUDDING_LINK_RADIUS
+                                        || v.at(x + ox, y + oy, z + oz) != BUDDING) continue;
+                                int next = v.index(x + ox, y + oy, z + oz);
+                                if (visited[next] == 0) { visited[next] = 1; queue[tail++] = next; }
+                            }
                     if (v.manMadeEnabled && !made)
                         search:
                         for (int oy = -v.radius; oy <= v.radius; oy++)
@@ -137,7 +161,9 @@ public final class GeodeAnalysis {
                                     stages[1],
                                     stages[2],
                                     stages[3],
-                                    made)));
+                                    made),
+                            v.x + minX, v.y + minY, v.z + minZ,
+                            v.x + maxX, v.y + maxY, v.z + maxZ));
             if (result.size() == 256) break;
         }
         return List.copyOf(result);

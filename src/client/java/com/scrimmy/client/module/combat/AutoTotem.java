@@ -9,18 +9,21 @@ import com.scrimmy.client.util.TotemSearch;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.item.Items;
-import java.util.concurrent.ThreadLocalRandom;
 
 public final class AutoTotem extends Module {
     public final ModeSetting mode = add(new ModeSetting("mode", "Mode", "Always", "Always", "Health threshold"));
     public final NumberSetting health = add(new NumberSetting("health", "Health threshold", 12, 1, 40, 1));
     public final NumberSetting delay = add(new NumberSetting("delay", "Delay (ticks)", 4, 0, 20, 1));
-    public final BooleanSetting randomDelay = add(new BooleanSetting("randomDelay", "Randomized delay", false));
     public final BooleanSetting inventoryClosed = add(new BooleanSetting("inventoryClosed", "Inventory closed only", true));
-    public final BooleanSetting hotbarFirst = add(new BooleanSetting("hotbarFirst", "Search hotbar first", true));
     private int cooldown;
 
-    public AutoTotem() { super("AutoTotem", "Moves a totem to the offhand", Category.COMBAT); }
+    public AutoTotem() {
+        super("AutoTotem", "Moves a totem to the offhand", Category.COMBAT);
+        mode.tooltip("Always hold a totem, or only when health is low.");
+        health.tooltip("Equip a totem below this health level.");
+        delay.tooltip("Wait this many game ticks between swaps.");
+        inventoryClosed.tooltip("Only swap when no screen is open.");
+    }
     @Override protected void onEnable() { cooldown = 0; }
     @Override protected void onDisable() { cooldown = 0; }
 
@@ -32,12 +35,12 @@ public final class AutoTotem extends Module {
         if (client.player.getOffhandItem().is(Items.TOTEM_OF_UNDYING)) return;
         if (mode.get().equals("Health threshold") && client.player.getHealth() > health.get()) return;
 
-        int source = TotemSearch.find(hotbarFirst.get(),
+        int source = TotemSearch.find(true,
             slot -> client.player.inventoryMenu.getSlot(slot).getItem().is(Items.TOTEM_OF_UNDYING));
         if (source < 0) return;
         // SWAP with hotbar button 40 means the offhand, and sends one server click.
         client.gameMode.handleInventoryMouseClick(client.player.inventoryMenu.containerId, source, 40, ClickType.SWAP, client.player);
         int base = delay.get().intValue();
-        cooldown = randomDelay.get() && base > 0 ? base + ThreadLocalRandom.current().nextInt(base + 1) : base;
+        cooldown = base;
     }
 }

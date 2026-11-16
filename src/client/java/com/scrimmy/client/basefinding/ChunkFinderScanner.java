@@ -3,6 +3,7 @@ package com.scrimmy.client.basefinding;
 import static com.scrimmy.client.basefinding.GeodeAnalysis.*;
 
 import com.scrimmy.client.module.basefinding.Basefinding;
+import com.scrimmy.client.basefinding.BaseLikelihood;
 
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
@@ -25,6 +26,8 @@ import java.util.concurrent.*;
  * Main-thread palette filtering/sliced snapshots; one bounded worker analyzes immutable volumes.
  */
 public final class ChunkFinderScanner implements AutoCloseable {
+    public static final long SNAPSHOT_BUDGET_NANOS = 1_000_000;
+    public static final int SCAN_REFRESH_TICKS = 200, DISCOVERY_PER_TICK = 8;
     private final Basefinding module;
     private final ExecutorService worker =
             Executors.newSingleThreadExecutor(
@@ -42,6 +45,7 @@ public final class ChunkFinderScanner implements AutoCloseable {
     private Future<List<Geode>> task;
     private Snapshot submitted;
     private long revision;
+    private int ticks;
     private int discovery, centerX = Integer.MIN_VALUE, centerZ, range;
     private int discoverX, discoverZ, directionX, directionZ = -1;
 
@@ -51,46 +55,6 @@ public final class ChunkFinderScanner implements AutoCloseable {
 
     public void initialize() {
         for (Block block : BuiltInRegistries.BLOCK) {
-            String id = BuiltInRegistries.BLOCK.getKey(block).getPath();
-            boolean made =
-                    id.endsWith("_planks")
-                            || id.contains("glass")
-                            || id.contains("torch")
-                            || id.contains("chest")
-                            || id.contains("shulker_box")
-                            || id.contains("rail")
-                            || id.contains("cobblestone")
-                            || id.endsWith("_door")
-                            || id.endsWith("_trapdoor")
-                            || id.endsWith("_bed")
-                            || id.endsWith("_fence")
-                            || id.endsWith("_fence_gate")
-                            || id.endsWith("_button")
-                            || id.contains("concrete")
-                            || id.contains("redstone")
-                            || Set.of(
-                                            "hopper",
-                                            "obsidian",
-                                            "crying_obsidian",
-                                            "barrel",
-                                            "crafting_table",
-                                            "furnace",
-                                            "blast_furnace",
-                                            "smoker",
-                                            "dispenser",
-                                            "dropper",
-                                            "observer",
-                                            "piston",
-                                            "sticky_piston",
-                                            "lever",
-                                            "ladder",
-                                            "scaffolding",
-                                            "lantern",
-                                            "soul_lantern",
-                                            "beacon",
-                                            "enchanting_table",
-                                            "anvil")
-                                    .contains(id);
             for (BlockState state : block.getStateDefinition().getPossibleStates()) {
                 int kind =
                         state.isAir()
@@ -102,7 +66,7 @@ public final class ChunkFinderScanner implements AutoCloseable {
                                                 : block == Blocks.AMETHYST_BLOCK
                                                                 || block == Blocks.CALCITE
                                                         ? SHELL
-                                                        : made ? MAN_MADE : NATURAL;
+                                                        : NATURAL;
                 int stage =
                         block == Blocks.SMALL_AMETHYST_BUD
                                 ? 0
@@ -136,8 +100,10 @@ public final class ChunkFinderScanner implements AutoCloseable {
 
     public void changed(ClientLevel level, int x, int z) {
         if (level != world || !module.active()) return;
+        if (centerX != Integer.MIN_VALUE && (Math.abs(x - centerX) > range + 1
+                || Math.abs(z - centerZ) > range + 1)) return;
         revisions.put(ChunkPos.asLong(x, z), ++revision);
-        // Neighbor snapshots include this chunk's shell, faces, and man-made evidence.
+        // Neighbor snapshots include this chunk's shell and growable faces.
         for (int dz = -1; dz <= 1; dz++)
             for (int dx = -1; dx <= 1; dx++) {
                 long key = ChunkPos.asLong(x + dx, z + dz);
@@ -147,6 +113,8 @@ public final class ChunkFinderScanner implements AutoCloseable {
 
     public void load(ClientLevel level, LevelChunk chunk) {
         if (level != world || !module.active()) return;
+        if (centerX != Integer.MIN_VALUE && (Math.abs(chunk.getPos().x - centerX) > range
+                || Math.abs(chunk.getPos().z - centerZ) > range)) return;
         long key = chunk.getPos().toLong();
         known.add(key);
         changed(level, chunk.getPos().x, chunk.getPos().z);
@@ -170,7 +138,7 @@ public final class ChunkFinderScanner implements AutoCloseable {
     public void tick(Minecraft mc) {
         if (world != mc.level) reset(mc.level);
         if (world == null || mc.player == null || !module.active() || mc.isPaused()) return;
-        long deadline = System.nanoTime() + (long) (module.scanBudget.get() * 1_000_000);
+        long deadline = System.nanoTime() + SNAPSHOT_BUDGET_NANOS;
         if (task != null && task.isDone()) {
             try {
                 if (submitted.valid()) module.accept(submitted.x, submitted.z, task.get());
@@ -182,19 +150,31 @@ public final class ChunkFinderScanner implements AutoCloseable {
             submitted = null;
         }
         int cx = mc.player.blockPosition().getX() >> 4, cz = mc.player.blockPosition().getZ() >> 4;
-        int r = Math.min(32, mc.options.renderDistance().get() + 1);
+        int r = Math.min(module.range.get().intValue() + BaseLikelihood.LOADED_RADIUS, mc.options.renderDistance().get() + 1);
         if (cx != centerX || cz != centerZ || r != range) {
             centerX = cx;
             centerZ = cz;
             range = r;
             discovery = 0;
+            var keys = known.iterator();
+            while (keys.hasNext()) {
+                long key = keys.nextLong();
+                if (Math.abs((int) key - cx) <= r && Math.abs((int) (key >>> 32) - cz) <= r) continue;
+                keys.remove(); dirty.remove(key); revisions.remove(key); module.unloaded(key);
+            }
+            var revisionKeys = revisions.keySet().iterator();
+            while (revisionKeys.hasNext()) {
+                long key = revisionKeys.nextLong();
+                if (Math.abs((int) key - cx) > r + 1 || Math.abs((int)(key >>> 32) - cz) > r + 1)
+                    revisionKeys.remove();
+            }
             discoverX = discoverZ = directionX = 0;
             directionZ = -1;
         }
         // Also discover chunks already present when the feature is enabled. Never request chunks.
         int side = r * 2 + 1;
         for (int i = 0;
-                i < 8 && discovery < side * side && System.nanoTime() < deadline;
+                i < DISCOVERY_PER_TICK && discovery < side * side && System.nanoTime() < deadline;
                 i++, discovery++) {
             int x = cx + discoverX, z = cz + discoverZ;
             // Walk a center-first square spiral without allocating/sorting chunk offsets.
@@ -210,6 +190,7 @@ public final class ChunkFinderScanner implements AutoCloseable {
             LevelChunk found = chunk(x, z);
             if (found != null && !known.contains(found.getPos().toLong())) load(world, found);
         }
+        if (++ticks % SCAN_REFRESH_TICKS == 0) for (long key : known) dirty.add(key);
         if (task != null) return;
         while (System.nanoTime() < deadline) {
             if (snapshot == null) {
@@ -219,7 +200,7 @@ public final class ChunkFinderScanner implements AutoCloseable {
                 it.remove();
                 int x = (int) key, z = (int) (key >>> 32);
                 LevelChunk target = chunk(x, z);
-                if (target == null || module.excluded(x, z)) continue;
+                if (target == null || Math.abs(x - cx) > r || Math.abs(z - cz) > r) continue;
                 snapshot = new Snapshot(x, z, target);
             }
             if (!snapshot.valid()) {
@@ -242,7 +223,8 @@ public final class ChunkFinderScanner implements AutoCloseable {
     }
 
     private final class Snapshot {
-        final int x, z, minY, maxY;
+        final int x, z;
+        int minY, maxY;
         final LevelChunk[] chunks = new LevelChunk[9];
         final long[] versions = new long[9];
         final boolean[] candidateSections;
@@ -255,10 +237,9 @@ public final class ChunkFinderScanner implements AutoCloseable {
             this.x = x;
             this.z = z;
             candidateSections = new boolean[target.getSections().length];
-            // Vanilla GeodeConfiguration evaluates offsets [-16,+16] around origins <=30.
-            // An extra section above the 46 limit proves connectivity closes inside the volume.
+            // Palette-filter all heights, including player-placed budding blocks.
             minY = world.getMinY();
-            maxY = Math.min(world.getMaxY() + 1, 64);
+            maxY = world.getMaxY() + 1;
             for (int i = 0; i < 9; i++) {
                 int nx = x + i % 3 - 1, nz = z + i / 3 - 1;
                 chunks[i] = chunk(nx, nz);
@@ -290,6 +271,12 @@ public final class ChunkFinderScanner implements AutoCloseable {
                     return false;
                 }
                 if (!hasBudding || maxY <= minY) return true;
+                int first = 0, last = candidateSections.length - 1;
+                while (!candidateSections[first]) first++;
+                while (!candidateSections[last]) last--;
+                // A section halo closes natural shells without copying the whole world height.
+                minY = Math.max(minY, target.getMinY() + first * 16 - 16);
+                maxY = Math.min(maxY, target.getMinY() + last * 16 + 32);
                 data = new byte[48 * 48 * (maxY - minY)];
             }
             if (part == 9) return true;
@@ -305,6 +292,7 @@ public final class ChunkFinderScanner implements AutoCloseable {
                 return false;
             }
             int baseY = source.getMinY() + section * 16;
+            if (baseY + 16 <= minY) { section++; return false; }
             LevelChunkSection states = source.getSections()[section];
             int end = Math.min(4096, cursor + 128);
             while (cursor < end) {
@@ -342,8 +330,8 @@ public final class ChunkFinderScanner implements AutoCloseable {
                     data,
                     x,
                     z,
-                    module.manMadeRadius.get().intValue(),
-                    module.manMade.get(),
+                    0,
+                    false,
                     buddingStarts.toIntArray());
         }
     }

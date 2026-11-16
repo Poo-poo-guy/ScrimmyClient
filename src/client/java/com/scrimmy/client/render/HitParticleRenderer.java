@@ -69,11 +69,11 @@ public final class HitParticleRenderer implements AutoCloseable {
         frustum.set(culling);
         var camera = context.worldState().cameraRenderState;
         cameraX = camera.pos.x; cameraY = camera.pos.y; cameraZ = camera.pos.z;
-        if (module.billboard.get()) {
+        if (HitParticles.BILLBOARD) {
             right.set(1, 0, 0).rotate(camera.orientation); up.set(0, 1, 0).rotate(camera.orientation);
         } else { right.set(1, 0, 0); up.set(0, 1, 0); }
         throughWalls = module.throughWalls.get();
-        double delta = context.tickCounter().getGameTimeDeltaPartialTick(false), renderDistance = module.distance.get();
+        double delta = context.tickCounter().getGameTimeDeltaPartialTick(false), renderDistance = HitParticles.DISTANCE;
         int visible = 0;
         for (int i = 0; i < module.particles.size(); i++) {
             ParticlePool.Particle p = module.particles.get(i);
@@ -81,43 +81,43 @@ public final class HitParticleRenderer implements AutoCloseable {
             double d = x * x + y * y + z * z;
             if (d > renderDistance * renderDistance) continue;
             // A conservative sphere also keeps halos, overshoot, and nearby trail samples visible.
-            float radius = (float)(p.size * module.size.get() / Math.max(.001, p.baseSize) * (3 + module.glowSize.get() + module.endSize.get()) + (module.trail.get() ? 4 : 0));
+            float radius = (float)(p.size * module.size.get() / Math.max(.001, p.baseSize) * (3 + HitParticles.GLOW_SIZE + HitParticles.END_SIZE) + (module.trail ? 4 : 0));
             if (!frustum.testSphere((float)x, (float)y, (float)z, radius)) continue;
             order[visible++] = ((long)Float.floatToRawIntBits((float)d) << 32) | i;
         }
         if (visible == 0) return;
-        int samples = module.trail.get() ? module.trailLength.get().intValue() : 0;
+        int samples = module.trail ? (int) HitParticles.TRAIL_LENGTH : 0;
         int maxBytes = visible * (samples + 3) * 4 * FORMAT.getVertexSize();
         normal.ensure(maxBytes); light.ensure(maxBytes);
         Arrays.sort(order, 0, visible);
         for (int v = visible - 1; v >= 0; v--) {
             ParticlePool.Particle p = module.particles.get((int)order[v]);
             double age = Math.max(0, p.age - .05 + delta * .05), progress = age / p.lifetime;
-            double alpha = ParticleMath.alpha(module.fadeEase.get(), age, p.lifetime, Math.min(module.pop.get(), p.lifetime * .3), module.alphaStart.get(), module.alphaEnd.get());
-            double scale = ParticleMath.scale(module.scaleEase.get(), age, p.lifetime, Math.min(module.pop.get(), p.lifetime * .3), module.endSize.get());
-            double pulse = 1 - module.twinkleStrength.get() * (.5 + .5 * Math.sin(age * module.twinkleSpeed.get() * Math.PI * 2 + p.phase));
-            if (module.twinkle.get()) { if (module.twinkleMode.get().equals("Alpha")) alpha *= pulse; else scale *= pulse; }
+            double alpha = ParticleMath.alpha(HitParticles.FADE_EASE, age, p.lifetime, Math.min(HitParticles.POP, p.lifetime * .3), HitParticles.ALPHA_START, HitParticles.ALPHA_END);
+            double scale = ParticleMath.scale(HitParticles.SCALE_EASE, age, p.lifetime, Math.min(HitParticles.POP, p.lifetime * .3), HitParticles.END_SIZE);
+            double pulse = 1 - HitParticles.TWINKLE_STRENGTH * (.5 + .5 * Math.sin(age * HitParticles.TWINKLE_SPEED * Math.PI * 2 + p.phase));
+            if (module.twinkle) { if (HitParticles.TWINKLE_MODE.equals("Alpha")) alpha *= pulse; else scale *= pulse; }
             if (alpha < .003 || scale < .001) continue;
             int color = alpha(module.color(p, progress, context.worldState().gameTime / 20.0 + delta * .05), alpha);
             double angle = lerp(p.oldAngle, p.angle, delta), cos = Math.cos(angle), sin = Math.sin(angle);
             rx = (float)(right.x * cos + up.x * sin); ry = (float)(right.y * cos + up.y * sin); rz = (float)(right.z * cos + up.z * sin);
             ux = (float)(up.x * cos - right.x * sin); uy = (float)(up.y * cos - right.y * sin); uz = (float)(up.z * cos - right.z * sin);
             float size;
-            // Size randomization is sampled at spawn; the base size still responds live.
+            // Size randomization is sampled at SPAWN; the base size still responds live.
             size = (float)(p.size * scale * module.size.get() / Math.max(.001, p.baseSize));
             double x = lerp(p.oldX, p.x, delta) - cameraX, y = lerp(p.oldY, p.y, delta) - cameraY, z = lerp(p.oldZ, p.z, delta) - cameraZ;
-            Batch body = module.additive.get() ? light : normal;
-            int points = Integer.parseInt(module.points.get());
+            Batch body = module.additive ? light : normal;
+            int points = Integer.parseInt(HitParticles.POINTS);
             if (samples > 0) for (int j = Math.min(samples, p.trailCount) - 1; j >= 0; j--) {
                 int index = Math.floorMod(p.trailHead - j, ParticlePool.TRAIL);
                 int previous = Math.floorMod(index - 1, ParticlePool.TRAIL);
                 double tx = p.trailX[index], ty = p.trailY[index], tz = p.trailZ[index];
                 if (j + 1 < p.trailCount) { tx = lerp(p.trailX[previous], tx, delta); ty = lerp(p.trailY[previous], ty, delta); tz = lerp(p.trailZ[previous], tz, delta); }
                 double f = 1 - (j + 1.0) / (samples + 1);
-                quad(body, tx - cameraX, ty - cameraY, tz - cameraZ, size * (float)f, alpha(color, Math.pow(f, module.trailFade.get()) * .45), p.shape, points, 0, 0);
+                quad(body, tx - cameraX, ty - cameraY, tz - cameraZ, size * (float)f, alpha(color, Math.pow(f, HitParticles.TRAIL_FADE) * .45), p.shape, points, 0, 0);
             }
-            if (module.glow.get() > 0) quad(light, x, y, z, size, alpha(color, Math.min(1, module.glow.get())), p.shape, points, 2, module.glowSize.get());
-            if (module.outline.get()) quad(body, x, y, z, size, alpha(module.outlineColor.get(), alpha), p.shape, points, 1, module.outlineWidth.get());
+            if (module.glow > 0) quad(light, x, y, z, size, alpha(color, Math.min(1, module.glow)), p.shape, points, 2, HitParticles.GLOW_SIZE);
+            if (HitParticles.OUTLINE) quad(body, x, y, z, size, alpha(HitParticles.OUTLINE_COLOR, alpha), p.shape, points, 1, HitParticles.OUTLINE_WIDTH);
             quad(body, x, y, z, size, color, p.shape, points, 0, 0);
         }
         normal.finish(); light.finish();
@@ -134,7 +134,7 @@ public final class HitParticleRenderer implements AutoCloseable {
         b.putFloat((float)x + size * (rx * u + ux * v)).putFloat((float)y + size * (ry * u + uy * v)).putFloat((float)z + size * (rz * u + uz * v));
         b.put((byte)(color >> 16)).put((byte)(color >> 8)).put((byte)color).put((byte)(color >>> 24));
         b.putFloat(u).putFloat(v);
-        b.putShort((short)shape).putShort((short)(module.inner.get() * 1000));
+        b.putShort((short)shape).putShort((short)(HitParticles.INNER * 1000));
         b.putShort((short)(points | (kind << 8))).putShort((short)(parameter * 1000));
         batch.vertices++;
     }

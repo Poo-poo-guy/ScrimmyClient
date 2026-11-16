@@ -128,28 +128,28 @@ public final class LogoutGhostRenderer implements AutoCloseable {
         for (int j = count - 1; j >= 0; j--) {
             Ghost ghost = module.tracker.get((int)order[j]);
             double distance = Math.sqrt(Float.intBitsToFloat((int)(order[j] >>> 32))), age = ghost.age(now);
-            double opacity = GhostMath.fade(age, module.duration.get(), distance, module.fadeDistance.get(), module.maxDrawDistance.get());
-            if (opacity * (module.ghostColor.get() >>> 24) < MIN_ALPHA) continue;
+            double opacity = GhostMath.fade(age, module.duration.get(), distance, LogoutGhosts.FADE_DISTANCE, module.maxDrawDistance.get());
+            if (opacity * (LogoutGhosts.GHOST_COLOR >>> 24) < MIN_ALPHA) continue;
             double phase = seconds * BOB_SPEED + ghost.slot;
             float x = (float)(ghost.x - cx), y = (float)(ghost.y - cy + BOB_HEIGHT * Math.sin(phase)), z = (float)(ghost.z - cz);
             double pulse = 1 - PULSE_DEPTH * (.5 + .5 * Math.sin(seconds * PULSE_SPEED + ghost.slot));
-            int color = GhostMath.color(module.ghostColor.get(), age / module.duration.get(), opacity * pulse);
-            if (module.showBody.get()) body(x, y, z, ghost.width, ghost.height, color);
-            if (module.showBeam.get()) {
+            int color = GhostMath.color(LogoutGhosts.GHOST_COLOR, age / module.duration.get(), opacity * pulse);
+            if (LogoutGhosts.SHOW_BODY) body(x, y, z, ghost.width, ghost.height, color);
+            if (LogoutGhosts.SHOW_BEAM) {
                 line(x, y + ghost.height, z, x, y + ghost.height + BEAM_HEIGHT, z, alpha(color, GLOW_ALPHA), BEAM_GLOW_WIDTH);
                 line(x, y + ghost.height, z, x, y + ghost.height + BEAM_HEIGHT, z, color, BEAM_WIDTH);
             }
-            if (!(module.showHead.get() || module.showLabel.get()) || !GhostMath.project(projection, x, y + ghost.height + LABEL_HEIGHT, z, clip)) continue;
+            if (!(LogoutGhosts.SHOW_HEAD || LogoutGhosts.SHOW_LABEL) || !GhostMath.project(projection, x, y + ghost.height + LABEL_HEIGHT, z, clip)) continue;
             Visual v = visuals[ghost.slot];
             if (v.texture == null || v.born != ghost.createdNanos) continue;
             v.x = (clip.x / clip.w + 1) * screenWidth / 2;
             v.y = (1 - clip.y / clip.w) * screenHeight / 2;
-            v.opacity = (float)(opacity * (module.ghostColor.get() >>> 24) / 255.0);
-            v.color = GhostMath.color(module.ghostColor.get(), age / module.duration.get(), opacity);
-            v.headSize = (float)Math.max(HEAD_MIN_SIZE, Math.min(HEAD_MAX_SIZE, HEAD_DISTANCE_SCALE / Math.max(1, distance))) * module.headSize.get().floatValue();
-            v.scale = (float)Math.max(LABEL_MIN_SCALE, Math.min(LABEL_MAX_SCALE, LABEL_DISTANCE_SCALE / Math.max(1, distance))) * module.labelSize.get().floatValue();
+            v.opacity = (float)(opacity * (LogoutGhosts.GHOST_COLOR >>> 24) / 255.0);
+            v.color = GhostMath.color(LogoutGhosts.GHOST_COLOR, age / module.duration.get(), opacity);
+            v.HEAD_SIZE = (float)Math.max(HEAD_MIN_SIZE, Math.min(HEAD_MAX_SIZE, HEAD_DISTANCE_SCALE / Math.max(1, distance))) * (float) LogoutGhosts.HEAD_SIZE;
+            v.scale = (float)Math.max(LABEL_MIN_SCALE, Math.min(LABEL_MAX_SCALE, LABEL_DISTANCE_SCALE / Math.max(1, distance))) * (float) LogoutGhosts.LABEL_SIZE;
             v.scale = Math.min(v.scale, screenWidth * LABEL_SCREEN_FRACTION / (v.width + LABEL_PADDING * 2));
-            v.head.marker(v.texture, v.x, v.y - HEAD_GAP - v.headSize / 2, v.headSize,
+            v.head.marker(v.texture, v.x, v.y - HEAD_GAP - v.HEAD_SIZE / 2, v.HEAD_SIZE,
                 (float)(age * HEAD_SPIN_SPEED - Math.toRadians(ghost.yaw)), HEAD_PITCH, v.opacity, viewport);
             projected[projectedCount++] = v;
         }
@@ -208,8 +208,8 @@ public final class LogoutGhostRenderer implements AutoCloseable {
         if (!module.inWorld(mc) || mc.options.hideGui || g.guiWidth() != screenWidth || g.guiHeight() != screenHeight) return;
         for (int i = 0; i < projectedCount; i++) {
             Visual v = projected[i];
-            if (module.showHead.get()) g.guiRenderState.submitPicturesInPictureState(v.head);
-            if (!module.showLabel.get()) continue;
+            if (LogoutGhosts.SHOW_HEAD) g.guiRenderState.submitPicturesInPictureState(v.head);
+            if (!LogoutGhosts.SHOW_LABEL) continue;
             float half = (v.width / 2f + LABEL_PADDING) * v.scale;
             float x = Math.max(half, Math.min(screenWidth - half, v.x));
             float y = Math.max(0, Math.min(screenHeight - v.height * v.scale, v.y));
@@ -240,6 +240,6 @@ public final class LogoutGhostRenderer implements AutoCloseable {
         long born = -1, seconds, distance;
         boolean coordinates;
         int width, height, color, nameWidth, statusWidth, detailWidth, positionWidth;
-        float x, y, opacity, scale, headSize;
+        float x, y, opacity, scale, HEAD_SIZE;
     }
 }
