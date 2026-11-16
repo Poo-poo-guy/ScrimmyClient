@@ -18,15 +18,13 @@ import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundEvents;
-import java.util.UUID;
 
 public final class LogoutGhosts extends Module implements LogoutGhostTracker.Listener {
     public static final int DEFAULT_COLOR = 0xD9D8F8FF;
-    private static final double TEST_DISTANCE = 6;
     private static final float CHIME_PITCH = 1.1f, CHIME_VOLUME = .2f;
-    public final NumberSetting duration, maxGhosts, maxDrawDistance, fadeDistance, headSize, labelSize;
-    public final BooleanSetting outOfRange, notifyChat, notifyVanish, sound, showBody, showBeam, showHead, showLabel, showCoordinates, testGhost;
-    public final ColorSetting ghostColor;
+    public final NumberSetting duration, maxDrawDistance;
+    public final BooleanSetting outOfRange, notifyChat, sound, showCoordinates;
+
     public final LogoutGhostTracker tracker = new LogoutGhostTracker();
     private final LogoutGhostRenderer renderer = new LogoutGhostRenderer(this);
     private final LogoutGhostTracker.TabList tab = uuid -> {
@@ -35,32 +33,31 @@ public final class LogoutGhosts extends Module implements LogoutGhostTracker.Lis
     };
     private ClientLevel world;
     private LocalPlayer localPlayer;
-    private boolean restoring;
 
+    public static final double MAX_GHOSTS = 12;
+    public static final double FADE_DISTANCE = 128;
+    public static final double HEAD_SIZE = 1;
+    public static final double LABEL_SIZE = 1;
+    public static final boolean NOTIFY_VANISH = false;
+    public static final boolean SHOW_BODY = true;
+    public static final boolean SHOW_BEAM = true;
+    public static final boolean SHOW_HEAD = true;
+    public static final boolean SHOW_LABEL = true;
+    public static final int GHOST_COLOR = DEFAULT_COLOR;
     public LogoutGhosts() {
         super("LogoutGhosts", "Fading markers at the last positions of departed players", Category.RENDER);
-        group("tracking", "Tracking", true);
         duration = n("duration", "Duration (s)", 120, 10, 1800, 10);
-        maxGhosts = n("maxGhosts", "Max Ghosts", 12, 1, LogoutGhostTracker.CAPACITY, 1);
-        outOfRange = b("outOfRange", "Out Of Range Ghosts", false);
+        outOfRange = b("outOfRange", "Out of range", false);
         outOfRange.tooltip("Also mark unloaded players who are still in tab. Often this is just render distance.");
-        group("notifications", "Notifications", false);
-        notifyChat = b("notifyChat", "Notify Chat", true);
-        notifyVanish = b("notifyVanish", "Notify Vanish", false);
+        notifyChat = b("notifyChat", "Chat messages", true);
         sound = b("sound", "Sound", false);
-        group("appearance", "Appearance", true);
-        showBody = b("showBody", "Show Body", true);
-        showBeam = b("showBeam", "Show Beam", true);
-        showHead = b("showHead", "Show Head", true);
-        showLabel = b("showLabel", "Show Label", true);
-        showCoordinates = b("showCoordinates", "Show Coordinates", false);
-        maxDrawDistance = n("maxDrawDistance", "Max Draw Distance", 256, 16, 1024, 16);
-        fadeDistance = n("fadeDistance", "Fade Distance", 128, 16, 1024, 16);
-        ghostColor = add(new ColorSetting("ghostColor", "Ghost Color", DEFAULT_COLOR));
-        headSize = n("headSize", "Head size", 1, .5, 2, .05);
-        labelSize = n("labelSize", "Label size", 1, .5, 2, .05);
-        testGhost = b("testGhost", "Test Ghost", false);
-        testGhost.tooltip("Create one preview six blocks ahead while enabled in a world.");
+        showCoordinates = b("showCoordinates", "Coordinates", false);
+        duration.tooltip("Keep markers for this many seconds.");
+        notifyChat.tooltip("Post a message when a player leaves.");
+        sound.tooltip("Play a sound when a player leaves.");
+        showCoordinates.tooltip("Include the player's last position on the marker.");
+        maxDrawDistance = n("maxDrawDistance", "Range", 256, 16, 1024, 16);
+        maxDrawDistance.tooltip("Show markers within this many blocks.");
     }
     private NumberSetting n(String key, String label, double value, double min, double max, double step) { return add(new NumberSetting(key, label, value, min, max, step)); }
     private BooleanSetting b(String key, String label, boolean value) { return add(new BooleanSetting(key, label, value)); }
@@ -87,7 +84,7 @@ public final class LogoutGhosts extends Module implements LogoutGhostTracker.Lis
             if (player == mc.player) continue;
             snapshot(tracker.observe(player.getUUID()), player);
         }
-        tracker.finishTick(tab, outOfRange.get(), notifyVanish.get(), duration.get(), maxGhosts.get().intValue(), this);
+        tracker.finishTick(tab, outOfRange.get(), NOTIFY_VANISH, duration.get(), (int) MAX_GHOSTS, this);
         renderer.tick(mc);
     }
     private void snapshot(Snapshot snapshot, AbstractClientPlayer player) {
@@ -97,23 +94,6 @@ public final class LogoutGhosts extends Module implements LogoutGhostTracker.Lis
         snapshot.width = player.getBbWidth(); snapshot.height = player.getBbHeight(); snapshot.dimension = player.level().dimension();
         snapshot.dead = player.getHealth() <= 0 || player.isDeadOrDying();
     }
-    @Override protected void onSettingChanged(Setting<?> setting) {
-        if (setting != testGhost || !testGhost.get()) return;
-        testGhost.set(false);
-        if (restoring || !enabled()) return;
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null || mc.level == null) return;
-        if (world != mc.level || localPlayer != mc.player) { clear(); world = mc.level; localPlayer = mc.player; }
-        Snapshot snapshot = new Snapshot(); snapshot(snapshot, mc.player);
-        // A separate preview UUID prevents our own tab entry from removing the test marker.
-        snapshot.uuid = UUID.randomUUID();
-        var look = mc.player.getLookAngle();
-        snapshot.x += look.x * TEST_DISTANCE; snapshot.y += look.y * TEST_DISTANCE; snapshot.z += look.z * TEST_DISTANCE;
-        tracker.test(snapshot, System.nanoTime(), maxGhosts.get().intValue(), this);
-        renderer.tick(mc);
-    }
-    @Override public void beginRestore() { restoring = true; }
-    @Override public void endRestore() { testGhost.set(false); restoring = false; }
     @Override public void created(Ghost ghost) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;

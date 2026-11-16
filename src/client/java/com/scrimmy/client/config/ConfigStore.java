@@ -68,9 +68,12 @@ public final class ConfigStore {
             for (Module module : modules.all()) {
                 module.beginRestore();
                 JsonObject entry = object(moduleJson, module.name());
-                if (entry.has("enabled")) module.enabled(entry.get("enabled").getAsBoolean());
+                boolean enabled = ModuleSettings.bool(entry, "enabled", false);
+                if (module.name().equals("Basefinding"))
+                    enabled &= ModuleSettings.bool(object(entry, "settings"), "cfEnabled", true);
+                module.enabled(enabled);
                 if (entry.has("keybind")) module.keybind(entry.get("keybind").getAsInt());
-                JsonObject values = object(entry, "settings");
+                JsonObject values = ModuleSettings.migrate(module.name(), object(entry, "settings"));
                 for (Setting<?> setting : module.settings()) readSetting(values, setting);
                 module.extraConfig(object(entry, "extra"));
                 module.endRestore();

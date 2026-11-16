@@ -1,28 +1,31 @@
-# In-game checks
+# Validation for the Chunk Finder and settings update
 
-- Start with a fresh config, or reset the GUI. Check all five panels at Minecraft GUI scales 1–4 and client scales 0.75/1/1.5, windowed/fullscreen, and after resize. Confirm no initial overlap, correct hover/click/drag coordinates, smooth collapse and scroll, front-on-click ordering, and saved custom positions/open states. Extremely short viewports prioritize keeping all five headers reachable; drag a panel to give it the full available height.
-- In Visual, enable HitParticles and hit players, hostile mobs, and passive mobs. Verify rejected attacks produce no particles. Try target filters, crit-only, kill-only, and attributed projectile damage. Test player/non-player kill attribution in multiplayer.
-- Try every shape, each star point count and inner ratio, all five motion modes, billboard/fixed orientation, negative gravity, outlines, alpha colors, gradient stop editing, palette colors, and per-shape overrides. Check smooth motion at low and high FPS.
-- Try all six built-in presets; edit a control and confirm Custom. Save to multiple user slots, restart, then load them. Check shape pools cannot become empty and malformed config settings keep valid neighbors.
-- Toggle Through walls behind solid geometry; compare normal/additive blending, halo sizes, trails, twinkle, scale/fade easing, size/lifetime ranges, optional sound, and distance culling. Stress 128 particles per hit and a 4,096 cap with trails; monitor frame time and allocation/GC on your GPU.
-- In ScrimmyClient+, change accent, blur, opacity, radius, GUI scale, and animation speed while Visual is open. Confirm text remains aligned, drag tracks remain stable, blur stays inside rounded panels, and the scene is sharp outside them.
-- Toggle every module, bind multiple modules to the same key, close/reopen, and restart. Verify enabled states, settings, layouts, and presets restore. Test AutoTotem from hotbar/main inventory, with an existing offhand totem, a container open, its health threshold, and click delay.
+Use Java 25 and run `./gradlew clean build`, then `./gradlew runClient`.
 
-# Changed-file map
+## Automated coverage
 
-- Entry point and routing: `ScrimmyClient.java`, `module/Category.java`, `module/Module.java`, `module/ModuleManager.java`.
-- Layout and GUI: `gui/ClickGui.java`, shared `theme/PanelState.java`, new `util/PanelLayout.java`.
-- Settings: shared `setting/Setting.java`, `ColorSetting.java`, and new `GroupSetting.java`, `ActionSetting.java`, `MultiSelectSetting.java`, `GradientSetting.java`.
-- Persistence: `config/ConfigStore.java`, new `config/SettingCodec.java`.
-- Hit effect: new `module/visual/HitParticles.java`, `render/HitParticleRenderer.java`, shared `particle/ParticleMath.java`, `ParticlePool.java`, and `shaders/core/hit_particle.vsh` / `.fsh`.
-- Server damage hook: new `mixin/ClientPacketListenerMixin.java`, `scrimmyclient.mixins.json`, and `fabric.mod.json`.
-- Validation/docs: `build.gradle`, `SettingsTest.java`, new `HitParticlesSettingsTest.java`, `ParticleMathTest.java`, `PanelLayoutTest.java`, `README.md`, and this checklist. `render/RoundedRenderer.java` gains smooth SDF gradient segments; AutoTotem and the blur renderer are retained.
+- Growth stage weighting, exposed/blocked faces, bud orientation, connected and broken shells, cross-chunk identity, incomplete/unloaded boundaries and measured geode bounds.
+- Positive/negative loaded-area evidence, overlap between distinct geodes, duplicate snapshot removal, normalization, smoothing, negative coordinates, bounded candidate ranges and empty evidence.
+- Retained settings, one-line tooltips, fresh defaults, old aliases, malformed removed fields, empty BlockESP selections, particle style restoration and old geode log compatibility.
+- Existing particle simulation, AutoTotem slot search, Freecam input/movement, ghost tracking/effects, BlockESP selection/recycling and GUI layout/transform regression tests.
 
-# Verification performed
+## Dev checks performed
 
-- Java 25 `./gradlew build`: 15 tests, zero failures/errors. The packaged mod includes both particle shaders and the mixin config; the temporary smoke harness is not packaged.
-- GLSL compilation/link validation for the rounded GUI and particle shader pairs.
-- Minecraft 1.21.11 + Fabric software-OpenGL launch: confirmed a melee burst, then live particles for all nine shapes and six built-in presets while cycling motion modes, depth modes, outlines, and trails. Clean disable/disconnect/shutdown.
-- Captured the five-panel GUI, Visual settings, and ScrimmyClient+ at Minecraft scales 2/3 and client scales 0.75/1/1.5. Corrected a height constraint found during the smallest viewport transition; automatic layout coordinates now move together when columns change.
+A temporary, unshipped client initializer created flat singleplayer worlds and placed three nearby groups of budding amethyst: two with grown clusters on their exposed faces and one with empty faces. The real palette-filtered scanner found three geodes, and the worker produced a 169-chunk estimate. World planes, geode bounds, glass labels and the primary Best estimate marker were drawn with Mesa software OpenGL.
 
-These checks do not establish hardware frame rates, Retina quality, multiplayer kill/critical attribution, audio quality, or compatibility with third-party renderers. Those remain in the checklist above.
+- Fresh-config startup reached Minecraft's first-run UI and then a singleplayer world.
+- An old version-1 config loaded with malformed removed settings, retained score/range values, the old ChunkFinder enable gate, seven BlockESP switches and an old custom Heart particle look. Startup assertions verified the migrated values.
+- Moving 1,280 blocks away cleared the live geode evidence; returning caused rediscovery. Historical logs did not feed the live result.
+- Minimum Score, Nametags and Highlight Chunks changed during the live run. The ClickGUI opened, the module disabled, the world disconnected and the client shut down.
+- The smoke source and extra initializer were supplied from `/tmp` through a temporary Gradle init script. They are excluded from the final clean build and packaged mod.
+
+Offline authentication/public-key requests were refused in the environment; integrated singleplayer and rendering still worked. This does not establish multiplayer behavior, physical audio output, hardware frame times, Retina sharpness or compatibility with third-party renderers.
+
+## Remaining manual checks
+
+- Test natural geodes on a real server, harvested clusters, incomplete chunk borders, rapid flying and view-distance changes. Compare loaded and unloaded rings of geodes around a known activity area.
+- At Minecraft GUI scales 1–4 and client scales .75/1/1.5, resize the window and check tag text, overlap suppression, theme changes, blur disabled/enabled and distance fades. Check world highlights through solid terrain.
+- Toggle every module, change its retained controls, save/restart, and verify values. Check all six particle styles against confirmed damage; AutoTotem offhand swaps; Freecam scroll/sprint; departure ghosts and spectator/tab warnings.
+- Profile CPU, GPU and allocation behavior while flying on target hardware. Marker geometry and label state are reused; Minecraft still manages its internal render submissions.
+
+The per-module removal/merge rationale is in [SETTINGS-CLEANUP.md](SETTINGS-CLEANUP.md). Scoring constants and implementation details are in [CHUNKFINDER.md](CHUNKFINDER.md).

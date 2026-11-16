@@ -1,8 +1,6 @@
 package com.scrimmy.client.module.visual;
 
-import com.google.gson.JsonObject;
 import com.scrimmy.client.ScrimmyClient;
-import com.scrimmy.client.config.SettingCodec;
 import com.scrimmy.client.module.Category;
 import com.scrimmy.client.module.Module;
 import com.scrimmy.client.particle.ParticlePool;
@@ -28,144 +26,133 @@ import java.util.concurrent.ThreadLocalRandom;
 
 public final class HitParticles extends Module {
     public static final String[] SHAPES = {"Star", "Sparkle", "Circle", "Heart", "Diamond", "Cross", "Snowflake", "Triangle", "Ring"};
-    private static final String[] EASINGS = {"Linear", "Ease-out", "Ease-in-out", "Back", "Elastic"};
-    public final NumberSetting count, countRandom, lifeMin, lifeMax, cap, spawnRadius, distance;
-    public final ModeSetting spawn, trigger, shape, points, colorMode, motion, twinkleMode, preset, userSlot;
-    public final MultiSelectSetting targets, pool;
-    public final BooleanSetting throughWalls, outline, colorLifetime, shapeColors, randomRotation, randomSpin, billboard, additive, twinkle, trail, sound;
-    public final NumberSetting inner, size, sizeRandom, endSize, outlineWidth, rainbowSpeed, saturation, alphaStart, alphaEnd;
-    public final ColorSetting startColor, endColor, outlineColor;
-    public final GradientSetting gradient, palette;
-    public final ColorSetting[] overrides = new ColorSetting[SHAPES.length];
-    public final NumberSetting speedMin, speedMax, spread, drag, gravity, spin, glow, glowSize, twinkleSpeed, twinkleStrength, trailLength, trailFade, pop, pitch, volume;
-    public final ModeSetting fadeEase, scaleEase;
+    public final NumberSetting count, size;
+    public final ModeSetting trigger, preset;
+    public final MultiSelectSetting targets;
+    public final BooleanSetting throughWalls;
+    // Fixed tuning and mutable style data replace the former fine-grained controls.
+    public static final double COUNT_RANDOM = 2;
+    public double lifeMin = .65;
+    public double lifeMax = 1.1;
+    public static final double CAP = 512;
+    public static final String SPAWN = "Hit point";
+    public static final double SPAWN_RADIUS = .15;
+    public static final double DISTANCE = 64;
+    public String shape = "Star";
+    public static final String POINTS = "5";
+    public static final double INNER = .45;
+    public static final double SIZE_RANDOM = .3;
+    public static final double END_SIZE = 0;
+    public static final boolean OUTLINE = false;
+    public static final double OUTLINE_WIDTH = .07;
+    public static final int OUTLINE_COLOR = 0xfff5ffff;
+    public String colorMode = "Client accent";
+    public int startColor = 0xff70d6db;
+    public int endColor = 0xffb693ee;
+    public static final boolean COLOR_LIFETIME = true;
+    public static final double RAINBOW_SPEED = .2;
+    public static final double SATURATION = .65;
+    public static final double ALPHA_START = 1;
+    public static final double ALPHA_END = 0;
+    public static final boolean SHAPE_COLORS = false;
+    public static final double SPEED_MIN = .6;
+    public double speedMax = 1.5;
+    public static final double SPREAD = 150;
+    public static final double DRAG = 1.8;
+    public double gravity = .35;
+    public String motion = "Radial burst";
+    public double spin = 100;
+    public static final boolean RANDOM_ROTATION = true;
+    public static final boolean RANDOM_SPIN = true;
+    public static final boolean BILLBOARD = true;
+    public double glow = .35;
+    public static final double GLOW_SIZE = .6;
+    public boolean additive = false;
+    public boolean twinkle = false;
+    public static final String TWINKLE_MODE = "Alpha";
+    public static final double TWINKLE_SPEED = 3;
+    public static final double TWINKLE_STRENGTH = .3;
+    public boolean trail = false;
+    public static final double TRAIL_LENGTH = 6;
+    public static final double TRAIL_FADE = .65;
+    public static final String FADE_EASE = "Ease-out";
+    public static final String SCALE_EASE = "Back";
+    public static final double POP = .12;
+    public static final boolean SOUND = false;
+    public static final double PITCH = 1.6;
+    public static final double VOLUME = .15;
+    public List<String> pool = List.of("Star", "Sparkle", "Ring");
+    public final GradientSetting gradient = new GradientSetting("gradient", "Gradient", 0xff70d6db, 0xffb693ee, 0xfff494a5);
+    public final GradientSetting palette = new GradientSetting("palette", "Palette", 0xff70d6db, 0xffb693ee, 0xfff494a5, 0xffffcf78);
+    public final int[] overrides = new int[SHAPES.length];
     public final ParticlePool particles = new ParticlePool();
     private final HitParticleRenderer renderer = new HitParticleRenderer(this);
-    private final JsonObject userPresets = new JsonObject();
     private boolean restoring;
     private ClientLevel world;
     private final Pending[] pending = new Pending[64];
     private int nextPending;
     private long ticks;
-    private String presetStatus = "Eight saved slots";
 
     public HitParticles() {
         super("HitParticles", "Stars and sparks on confirmed local-player damage", Category.VISUAL);
         for (int i = 0; i < pending.length; i++) pending[i] = new Pending();
-        group("general", "General", true);
-        count = n("count", "Particles per hit", 14, 1, 128, 1);
-        countRandom = n("countRandom", "Count random +/-", 2, 0, 64, 1);
-        lifeMin = n("lifeMin", "Lifetime min (s)", .65, .1, 6, .05);
-        lifeMax = n("lifeMax", "Lifetime max (s)", 1.1, .1, 6, .05);
-        cap = n("cap", "Max live particles", 512, 16, ParticlePool.CAPACITY, 16);
-        spawn = m("spawn", "Spawn position", "Hit point", "Hit point", "Body center", "Feet", "Eye height");
-        spawnRadius = n("spawnRadius", "Spawn spread", .15, 0, 2, .01);
+        preset = m("preset", "Style", "Starburst", "Starburst", "Sparkle", "Hearts", "Galaxy", "Confetti", "Minimal");
+        count = n("count", "Amount", 14, 1, 128, 1);
         trigger = m("trigger", "Trigger", "On hit", "On hit", "Crit only", "Kill only", "Any damage dealt");
         targets = add(new MultiSelectSetting("targets", "Targets", List.of("Players", "Hostile mobs", "Passive mobs"), "Players", "Hostile mobs", "Passive mobs", "All entities"));
         throughWalls = b("throughWalls", "Through walls", false);
-        distance = n("distance", "Render distance", 64, 4, 256, 1);
-        group("shapeSection", "Shape", false);
-        shape = m("shape", "Shape", "Star", "Star", "Sparkle", "Circle", "Heart", "Diamond", "Cross", "Snowflake", "Triangle", "Ring", "Random mix");
-        pool = add(new MultiSelectSetting("pool", "Random shape pool", List.of("Star", "Sparkle", "Ring"), SHAPES));
-        points = m("points", "Star points", "5", "4", "5", "6", "8");
-        inner = n("inner", "Star inner radius", .45, .1, .9, .01);
-        size = n("size", "Base size (blocks)", .18, .02, 1.5, .01);
-        sizeRandom = n("sizeRandom", "Size randomization", .3, 0, .95, .01);
-        endSize = n("endSize", "End size multiplier", 0, 0, 3, .05);
-        outline = b("outline", "Outline", false);
-        outlineWidth = n("outlineWidth", "Outline thickness", .07, .01, .4, .01);
-        outlineColor = c("outlineColor", "Outline color", 0xfff5ffff);
-        group("colorSection", "Color", false);
-        colorMode = m("colorMode", "Color mode", "Client accent", "Single", "Two-color gradient", "Multi-stop gradient", "Rainbow", "Random palette", "Client accent");
-        startColor = c("startColor", "Start color", 0xff70d6db);
-        endColor = c("endColor", "End color", 0xffb693ee);
-        gradient = add(new GradientSetting("gradient", "Gradient stops", 0xff70d6db, 0xffb693ee, 0xfff494a5));
-        palette = add(new GradientSetting("palette", "Palette colors", 0xff70d6db, 0xffb693ee, 0xfff494a5, 0xffffcf78));
-        colorLifetime = b("colorLifetime", "Color over lifetime", true);
-        rainbowSpeed = n("rainbowSpeed", "Rainbow speed", .2, 0, 3, .01);
-        saturation = n("saturation", "Rainbow saturation", .65, 0, 1, .01);
-        alphaStart = n("alphaStart", "Alpha start", 1, 0, 1, .01);
-        alphaEnd = n("alphaEnd", "Alpha end", 0, 0, 1, .01);
-        shapeColors = b("shapeColors", "Per-shape colors", false);
-        for (int i = 0; i < SHAPES.length; i++) overrides[i] = c("color" + SHAPES[i], SHAPES[i] + " color", Color.HSBtoRGB(i / (float)SHAPES.length, .5f, 1));
-        group("motionSection", "Motion", false);
-        speedMin = n("speedMin", "Speed min (blocks/s)", .6, 0, 12, .05);
-        speedMax = n("speedMax", "Speed max (blocks/s)", 1.5, 0, 12, .05);
-        spread = n("spread", "Spread angle (degrees)", 150, 0, 180, 1);
-        drag = n("drag", "Drag (per second)", 1.8, 0, 12, .1);
-        gravity = n("gravity", "Gravity (blocks/s2)", .35, -8, 8, .05);
-        motion = m("motion", "Motion mode", "Radial burst", "Radial burst", "Upward fountain", "Spiral", "Explosion", "Orbit");
-        spin = n("spin", "Spin (degrees/s)", 100, -720, 720, 5);
-        randomRotation = b("randomRotation", "Random initial rotation", true);
-        randomSpin = b("randomSpin", "Random spin direction", true);
-        billboard = b("billboard", "Face camera", true);
-        group("effectsSection", "Effects", false);
-        glow = n("glow", "Glow intensity", .35, 0, 2, .05);
-        glowSize = n("glowSize", "Glow size", .6, .05, 2, .05);
-        additive = b("additive", "Additive blending", false);
-        twinkle = b("twinkle", "Twinkle / pulse", false);
-        twinkleMode = m("twinkleMode", "Pulse affects", "Alpha", "Alpha", "Scale");
-        twinkleSpeed = n("twinkleSpeed", "Twinkle speed (Hz)", 3, .1, 20, .1);
-        twinkleStrength = n("twinkleStrength", "Twinkle strength", .3, 0, 1, .01);
-        trail = b("trail", "Particle trails", false);
-        trailLength = n("trailLength", "Trail length (samples)", 6, 1, ParticlePool.TRAIL, 1);
-        trailFade = n("trailFade", "Trail fade", .65, .1, 3, .05);
-        fadeEase = m("fadeEase", "Fade easing", "Ease-out", EASINGS);
-        scaleEase = m("scaleEase", "Scale easing", "Back", EASINGS);
-        pop = n("pop", "Pop-in duration (s)", .12, .02, .5, .01);
-        group("soundSection", "Sound", false);
-        sound = b("sound", "Hit sound", false);
-        pitch = n("pitch", "Sound pitch", 1.6, .5, 2, .05);
-        volume = n("volume", "Sound volume", .15, 0, 1, .01);
-        group("presetsSection", "Presets", true);
-        preset = m("preset", "Built-in look", "Starburst", "Starburst", "Sparkle", "Hearts", "Galaxy", "Confetti", "Minimal", "Custom");
-        userSlot = m("userSlot", "User preset slot", "User 1", "User 1", "User 2", "User 3", "User 4", "User 5", "User 6", "User 7", "User 8");
-        add(new ActionSetting("savePreset", "Save selected slot", this::savePreset));
-        add(new ActionSetting("loadPreset", "Load selected slot", this::loadPreset));
+        size = n("size", "Size", .18, .02, 1.5, .01);
+        count.tooltip("How many particles appear for each hit.");
+        size.tooltip("How large each particle looks.");
+        trigger.tooltip("Choose which hits create particles.");
+        targets.tooltip("Choose which kinds of entities create particles.");
+        throughWalls.tooltip("Show particles behind solid blocks.");
+        preset.tooltip("Choose a complete particle style.");
     }
     private NumberSetting n(String key, String label, double value, double min, double max, double step) { return add(new NumberSetting(key, label, value, min, max, step)); }
     private ModeSetting m(String key, String label, String value, String... options) { return add(new ModeSetting(key, label, value, options)); }
     private BooleanSetting b(String key, String label, boolean value) { return add(new BooleanSetting(key, label, value)); }
-    private ColorSetting c(String key, String label, int value) { return add(new ColorSetting(key, label, value)); }
-    private boolean lookSetting(Setting<?> s) { return !(s instanceof GroupSetting || s instanceof ActionSetting) && s != preset && s != userSlot; }
     @Override protected void onSettingChanged(Setting<?> setting) {
         if (restoring || preset == null) return;
-        if (setting == preset) { if (!preset.get().equals("Custom")) applyPreset(preset.get()); }
-        else if (lookSetting(setting)) { restoring = true; preset.set("Custom"); restoring = false; }
+        if (setting == preset) applyPreset(preset.get());
     }
     @Override public void beginRestore() { restoring = true; }
-    @Override public void endRestore() { restoring = false; }
+    @Override public void endRestore() {
+        double savedCount = count.get(), savedSize = size.get(); boolean savedWalls = throughWalls.get();
+        applyPreset(preset.get());
+        restoring = true; count.set(savedCount); size.set(savedSize); throughWalls.set(savedWalls); restoring = false;
+    }
+    private void resetTuning() {
+        lifeMin = .65;
+        lifeMax = 1.1;
+        shape = "Star";
+        colorMode = "Client accent";
+        startColor = 0xff70d6db;
+        endColor = 0xffb693ee;
+        speedMax = 1.5;
+        gravity = .35;
+        motion = "Radial burst";
+        spin = 100;
+        glow = .35;
+        additive = false;
+        twinkle = false;
+        trail = false;
+        pool = List.of("Star", "Sparkle", "Ring");
+    }
     private void applyPreset(String name) {
         restoring = true;
-        for (Setting<?> s : settings()) if (lookSetting(s)) s.reset();
+        resetTuning(); count.reset(); size.reset(); throughWalls.reset();
         switch (name) {
-            case "Sparkle" -> { shape.set("Sparkle"); twinkle.set(true); glow.set(.7); gravity.set(-.2); }
-            case "Hearts" -> { shape.set("Heart"); colorMode.set("Two-color gradient"); startColor.set(0xffff719f); endColor.set(0xffffc0d3); motion.set("Upward fountain"); gravity.set(-.3); spin.set(25.0); }
-            case "Galaxy" -> { shape.set("Random mix"); colorMode.set("Multi-stop gradient"); motion.set("Spiral"); trail.set(true); twinkle.set(true); additive.set(true); glow.set(.7); lifeMin.set(1.2); lifeMax.set(1.8); }
-            case "Confetti" -> { shape.set("Random mix"); pool.set(List.of("Star", "Diamond", "Cross", "Triangle")); colorMode.set("Random palette"); count.set(28.0); speedMax.set(3.0); spin.set(300.0); gravity.set(2.0); glow.set(.1); }
-            case "Minimal" -> { shape.set("Circle"); count.set(6.0); size.set(.08); colorMode.set("Single"); glow.set(.1); spin.set(0.0); }
+            case "Sparkle" -> { shape = "Sparkle"; twinkle = true; glow = .7; gravity = -.2; }
+            case "Hearts" -> { shape = "Heart"; colorMode = "Two-color gradient"; startColor = 0xffff719f; endColor = 0xffffc0d3; motion = "Upward fountain"; gravity = -.3; spin = 25; }
+            case "Galaxy" -> { shape = "Random mix"; colorMode = "Multi-stop gradient"; motion = "Spiral"; trail = true; twinkle = true; additive = true; glow = .7; lifeMin = 1.2; lifeMax = 1.8; }
+            case "Confetti" -> { shape = "Random mix"; pool = List.of("Star", "Diamond", "Cross", "Triangle"); colorMode = "Random palette"; count.set(28.0); speedMax = 3; spin = 300; gravity = 2; glow = .1; }
+            case "Minimal" -> { shape = "Circle"; count.set(6.0); size.set(.08); colorMode = "Single"; glow = .1; spin = 0; }
             default -> { }
         }
         restoring = false;
     }
-    private void savePreset() {
-        JsonObject values = new JsonObject();
-        for (Setting<?> s : settings()) if (lookSetting(s)) SettingCodec.write(values, s);
-        userPresets.add(userSlot.get(), values); presetStatus = "Saved " + userSlot.get(); changed();
-    }
-    private void loadPreset() {
-        if (!userPresets.has(userSlot.get())) { presetStatus = "Empty: " + userSlot.get(); return; }
-        restoring = true;
-        JsonObject values = userPresets.getAsJsonObject(userSlot.get());
-        for (Setting<?> s : settings()) if (lookSetting(s)) SettingCodec.read(values, s);
-        preset.set("Custom"); restoring = false;
-        presetStatus = "Loaded " + userSlot.get(); changed();
-    }
-    public String presetStatus() { return presetStatus; }
-    @Override public JsonObject extraConfig() { return userPresets.deepCopy(); }
-    @Override public void extraConfig(JsonObject json) {
-        for (String name : userSlot.options()) if (json.has(name) && json.get(name).isJsonObject()) userPresets.add(name, json.get(name).deepCopy());
-    }
+    public String presetStatus() { return "Choose a style, then adjust amount and size."; }
     @Override public void initialize() {
         AttackEntityCallback.EVENT.register((player, level, hand, entity, hit) -> {
             Minecraft mc = Minecraft.getInstance();
@@ -227,25 +214,25 @@ public final class HitParticles extends Module {
         if (mc.level != world) { clear(); world = mc.level; }
         if (mc.level == null || mc.player == null || mc.isPaused()) return;
         ticks++;
-        particles.cap(cap.get().intValue());
+        particles.cap((int) CAP);
         for (Pending p : pending) if (p.waitingKill) {
             Entity entity = mc.level.getEntity(p.id);
             if (ticks - p.damageTick > 40 || entity == null) p.waitingKill = false;
             else if (entity instanceof LivingEntity living && living.isDeadOrDying()) death(entity);
         }
-        if (motion.get().equals("Orbit")) for (int i = 0; i < particles.size(); i++) {
+        if (motion.equals("Orbit")) for (int i = 0; i < particles.size(); i++) {
             ParticlePool.Particle p = particles.get(i);
             Entity target = mc.level.getEntity(p.targetId);
             if (target != null) { p.originX = target.getX(); p.originY = target.getY() + target.getBbHeight() * .5; p.originZ = target.getZ(); }
         }
-        particles.tick(.05, motion.get(), drag.get(), gravity.get());
+        particles.tick(.05, motion, DRAG, gravity);
     }
     private void burst(Entity entity, Pending hit) {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null || mc.player.distanceToSqr(entity) > distance.get() * distance.get()) return;
+        if (mc.player == null || mc.player.distanceToSqr(entity) > DISTANCE * DISTANCE) return;
         ThreadLocalRandom r = ThreadLocalRandom.current();
         double x = entity.getX(), y = entity.getY(), z = entity.getZ();
-        switch (spawn.get()) {
+        switch (SPAWN) {
             case "Hit point" -> {
                 if (ticks - hit.attackTick <= 10 && hit.attackTick > -1000) { x = hit.hitX; y = hit.hitY; z = hit.hitZ; }
                 else y += entity.getBbHeight() * .5;
@@ -254,50 +241,50 @@ public final class HitParticles extends Module {
             case "Eye height" -> y = entity.getEyeY();
             default -> { }
         }
-        int amount = Math.max(0, count.get().intValue() + r.nextInt(-countRandom.get().intValue(), countRandom.get().intValue() + 1));
+        int amount = Math.max(0, count.get().intValue() + r.nextInt(-(int) COUNT_RANDOM, (int) COUNT_RANDOM + 1));
         for (int i = 0; i < amount; i++) {
-            ParticlePool.Particle p = particles.acquire(cap.get().intValue()); if (p == null) break;
+            ParticlePool.Particle p = particles.acquire((int) CAP); if (p == null) break;
             // Uniform solid-angle sampling avoids bunching at the cone's pole.
-            double azimuth = r.nextDouble(Math.PI * 2), cone = Math.toRadians(spread.get());
+            double azimuth = r.nextDouble(Math.PI * 2), cone = Math.toRadians(SPREAD);
             double cos = 1 - r.nextDouble() * (1 - Math.cos(cone)), sin = Math.sqrt(Math.max(0, 1 - cos * cos));
             double dx = sin * Math.cos(azimuth), dy = cos, dz = sin * Math.sin(azimuth);
-            if (!motion.get().equals("Upward fountain")) {
+            if (!motion.equals("Upward fountain")) {
                 double ax = entity.getX() - mc.player.getX(), az = entity.getZ() - mc.player.getZ();
                 double length = Math.hypot(ax, az);
                 if (length < .0001) { ax = 0; az = 1; } else { ax /= length; az /= length; }
                 double lateral = dx;
                 dx = ax * dy - az * lateral; dz = az * dy + ax * lateral; dy = sin * Math.sin(azimuth);
             }
-            double speed = between(r, speedMin.get(), speedMax.get()) * (motion.get().equals("Explosion") ? 2 : 1);
-            double radius = spawnRadius.get() * Math.cbrt(r.nextDouble());
+            double speed = between(r, SPEED_MIN, speedMax) * (motion.equals("Explosion") ? 2 : 1);
+            double radius = SPAWN_RADIUS * Math.cbrt(r.nextDouble());
             p.reset(x + dx * radius, y + dy * radius, z + dz * radius);
             p.vx = dx * speed; p.vy = dy * speed; p.vz = dz * speed;
-            p.lifetime = between(r, lifeMin.get(), lifeMax.get());
+            p.lifetime = between(r, lifeMin, lifeMax);
             p.baseSize = size.get();
-            p.size = size.get() * (1 + (r.nextDouble() * 2 - 1) * sizeRandom.get());
-            p.angle = p.oldAngle = randomRotation.get() ? r.nextDouble(Math.PI * 2) : 0;
-            p.spin = Math.toRadians(spin.get()) * (randomSpin.get() && r.nextBoolean() ? -1 : 1);
+            p.size = size.get() * (1 + (r.nextDouble() * 2 - 1) * SIZE_RANDOM);
+            p.angle = p.oldAngle = RANDOM_ROTATION ? r.nextDouble(Math.PI * 2) : 0;
+            p.spin = Math.toRadians(spin) * (RANDOM_SPIN && r.nextBoolean() ? -1 : 1);
             p.phase = r.nextDouble(Math.PI * 2); p.orbitRadius = Math.max(.05, speed * .35 + radius); p.colorSeed = r.nextDouble(); p.targetId = entity.getId();
-            String chosen = shape.get().equals("Random mix") ? pool.get().get(r.nextInt(pool.get().size())) : shape.get();
+            String chosen = shape.equals("Random mix") ? pool.get(r.nextInt(pool.size())) : shape;
             p.shape = 0; for (int s = 0; s < SHAPES.length; s++) if (SHAPES[s].equals(chosen)) p.shape = s;
-            if (motion.get().equals("Orbit")) {
+            if (motion.equals("Orbit")) {
                 p.originX = entity.getX(); p.originY = entity.getY() + entity.getBbHeight() * .5; p.originZ = entity.getZ();
                 p.x = p.oldX = p.originX + Math.cos(p.phase) * p.orbitRadius;
                 p.z = p.oldZ = p.originZ + Math.sin(p.phase) * p.orbitRadius;
                 p.y = p.oldY = p.originY + Math.sin(p.phase * 1.5) * p.orbitRadius * .4;
             }
         }
-        if (sound.get()) mc.player.playSound(SoundEvents.EXPERIENCE_ORB_PICKUP, volume.get().floatValue(), pitch.get().floatValue());
+        if (SOUND) mc.player.playSound(SoundEvents.EXPERIENCE_ORB_PICKUP, (float) VOLUME, (float) PITCH);
     }
     private static double between(ThreadLocalRandom r, double a, double b) { return Math.min(a, b) + r.nextDouble() * Math.abs(b - a); }
     public int color(ParticlePool.Particle p, double progress, double seconds) {
-        if (shapeColors.get()) return overrides[p.shape].get();
-        double f = colorLifetime.get() ? progress : p.colorSeed;
-        return switch (colorMode.get()) {
-            case "Single" -> colorLifetime.get() ? GradientSetting.mix(startColor.get(), endColor.get(), progress) : startColor.get();
-            case "Two-color gradient" -> GradientSetting.mix(startColor.get(), endColor.get(), f);
+        if (SHAPE_COLORS) return overrides[p.shape];
+        double f = COLOR_LIFETIME ? progress : p.colorSeed;
+        return switch (colorMode) {
+            case "Single" -> COLOR_LIFETIME ? GradientSetting.mix(startColor, endColor, progress) : startColor;
+            case "Two-color gradient" -> GradientSetting.mix(startColor, endColor, f);
             case "Multi-stop gradient" -> gradient.sample(f);
-            case "Rainbow" -> Color.HSBtoRGB((float)((p.colorSeed + seconds * rainbowSpeed.get()) % 1), saturation.get().floatValue(), 1);
+            case "Rainbow" -> Color.HSBtoRGB((float)((p.colorSeed + seconds * RAINBOW_SPEED) % 1), (float) SATURATION, 1);
             case "Random palette" -> palette.get().get(Math.min(palette.get().size() - 1, (int)(p.colorSeed * palette.get().size()))).color();
             default -> GradientSetting.mix(ScrimmyClient.THEME.accent.get(), 0xfff4faff, f * .75);
         };

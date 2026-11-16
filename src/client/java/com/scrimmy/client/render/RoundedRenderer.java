@@ -28,8 +28,16 @@ public final class RoundedRenderer {
     /** Reusable glass-style panel for moving world labels. Its owner keeps one instance per marker. */
     public static final class ReusablePanel {
         private final PanelShape shadow = new PanelShape(2), fill = new PanelShape(0), border = new PanelShape(1);
+        private final PanelShape glass = new PanelShape(0);
         public void draw(GuiGraphics g, int width, int height, int radius, int color, int outline, int shadowColor, ScreenRectangle viewport) {
+            draw(g, width, height, radius, color, outline, shadowColor, viewport, null);
+        }
+        public void draw(GuiGraphics g, int width, int height, int radius, int color, int outline, int shadowColor, ScreenRectangle viewport, TextureSetup texture) {
             shadow.update(g, width, height, radius, shadowColor, viewport);
+            if (texture != null) {
+                glass.texture = texture;
+                glass.update(g, width, height, radius, (color & 0xff000000) | 0xffffff, viewport);
+            }
             fill.update(g, width, height, radius, color, viewport);
             border.update(g, width, height, radius, outline, viewport);
         }
@@ -38,6 +46,7 @@ public final class RoundedRenderer {
             private final Matrix3x2f pose = new Matrix3x2f();
             private int width, height, radius, color;
             private ScreenRectangle viewport;
+            private TextureSetup texture = TextureSetup.noTexture();
             private PanelShape(int kind) { this.kind = kind; }
             void update(GuiGraphics g, int width, int height, int radius, int color, ScreenRectangle viewport) {
                 this.width = width; this.height = height; this.radius = radius; this.color = color; this.viewport = viewport;
@@ -45,8 +54,8 @@ public final class RoundedRenderer {
                 if (kind == 2) pose.translate(0, 2);
                 g.guiRenderState.submitGuiElement(this);
             }
-            @Override public RenderPipeline pipeline() { return SOLID; }
-            @Override public TextureSetup textureSetup() { return TextureSetup.noTexture(); }
+            @Override public RenderPipeline pipeline() { return texture == TextureSetup.noTexture() ? SOLID : GLASS; }
+            @Override public TextureSetup textureSetup() { return texture; }
             @Override public ScreenRectangle scissorArea() { return viewport; }
             // A conservative cached viewport avoids constructing a moving rectangle each frame.
             @Override public ScreenRectangle bounds() { return viewport; }

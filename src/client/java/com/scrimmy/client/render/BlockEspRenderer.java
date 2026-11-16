@@ -80,11 +80,11 @@ public final class BlockEspRenderer implements AutoCloseable {
         double pz = mc.player.zo + (mc.player.getZ() - mc.player.zo) * partial;
         view.set(context.viewMatrix()); culling.set(context.cullProjectionMatrix()).mul(view); frustum.set(culling);
         inverseView.set(view).invert().transformPosition(forward.set(0, 0, -.15f));
-        throughWalls = module.throughWalls.get(); dimOccluded = module.dimOccluded.get(); hiddenOpacity = module.hiddenOpacity.get().floatValue();
+        throughWalls = module.throughWalls.get(); dimOccluded = BlockESPModule.DIM_OCCLUDED; hiddenOpacity = (float) BlockESPModule.HIDDEN_OPACITY;
         long target = 0;
-        boolean hide = module.hideTarget.get() && mc.hitResult instanceof BlockHitResult hit && hit.getType() == HitResult.Type.BLOCK;
+        boolean hide = BlockESPModule.HIDE_TARGET && mc.hitResult instanceof BlockHitResult hit && hit.getType() == HitResult.Type.BLOCK;
         if (hide) target = ((BlockHitResult)mc.hitResult).getBlockPos().asLong();
-        double range = module.range.get(), blend = 1 - Math.exp(-dt * 4 / module.fadeTime.get());
+        double range = module.range.get(), blend = 1 - Math.exp(-dt * 4 / BlockESPModule.FADE_TIME);
         int count = 0;
         for (int i = 0; i < module.cache.size();) {
             BlockEspCache.Visual visual = module.cache.visual(i);
@@ -103,34 +103,34 @@ public final class BlockEspRenderer implements AutoCloseable {
         }
         if (count == 0) return;
         Arrays.sort(order, 0, count);
-        count = Math.min(count, module.maxBlocks.get().intValue());
+        count = Math.min(count, (int) BlockESPModule.MAX_BLOCKS);
         ensure(count * 76 * FORMAT.getVertexSize());
         boolean fill = !module.mode.get().equals("Outline"), outline = !module.mode.get().equals("Fill");
         double seconds = now / 1_000_000_000.0;
-        double pulse = module.pulse.get() ? 1 - module.pulseStrength.get() * (.5 + .5 * Math.sin(seconds * module.pulseSpeed.get() * Math.PI * 2)) : 1;
+        double pulse = BlockESPModule.PULSE ? 1 - BlockESPModule.PULSE_STRENGTH * (.5 + .5 * Math.sin(seconds * BlockESPModule.PULSE_SPEED * Math.PI * 2)) : 1;
         // The capped nearest set is drawn far to near for stable translucent blending.
         for (int j = count - 1; j >= 0; j--) {
             BlockEspCache.Visual visual = module.cache.visual((int)order[j]);
             long pos = visual.entry.pos;
             double x = BlockPos.getX(pos) - cx, y = BlockPos.getY(pos) - cy, z = BlockPos.getZ(pos) - cz;
             double distance = Math.sqrt(Float.intBitsToFloat((int)(order[j] >>> 32)));
-            double opacity = visual.alpha * pulse * (1 - module.distanceFade.get() * Math.min(1, distance / range));
+            double opacity = visual.alpha * pulse * (1 - BlockESPModule.DISTANCE_FADE * Math.min(1, distance / range));
             int color = alpha(module.color(visual.entry.block, seconds, distance), opacity);
             for (int v = 0; v < 8; v++) {
                 corners[v*3] = (float)(x + ((v & 1) == 0 ? -.002 : 1.002));
                 corners[v*3+1] = (float)(y + ((v & 2) == 0 ? -.002 : 1.002));
                 corners[v*3+2] = (float)(z + ((v & 4) == 0 ? -.002 : 1.002));
             }
-            if (fill && module.fillOpacity.get() > 0) {
-                int fillColor = alpha(color, module.fillOpacity.get());
+            if (fill && BlockESPModule.FILL_OPACITY > 0) {
+                int fillColor = alpha(color, BlockESPModule.FILL_OPACITY);
                 for (int[] face : FACES) for (int v : face) vertex(corners[v*3], corners[v*3+1], corners[v*3+2], fillColor, 0, 0, 0, 0, 0);
             }
             if (outline) for (int[] edge : EDGES) {
                 int a = edge[0]*3, b = edge[1]*3;
-                line(corners[a], corners[a+1], corners[a+2], corners[b], corners[b+1], corners[b+2], color, module.thickness.get().floatValue());
+                line(corners[a], corners[a+1], corners[a+2], corners[b], corners[b+1], corners[b+2], color, (float) BlockESPModule.THICKNESS);
             }
-            if (module.tracers.get() && j < module.maxTracers.get().intValue())
-                line(forward.x, forward.y, forward.z, (float)x+.5f, (float)y+.5f, (float)z+.5f, alpha(color, module.tracerOpacity.get()), module.tracerWidth.get().floatValue());
+            if (module.tracers.get() && j < (int) BlockESPModule.MAX_TRACERS)
+                line(forward.x, forward.y, forward.z, (float)x+.5f, (float)y+.5f, (float)z+.5f, alpha(color, BlockESPModule.TRACER_OPACITY), (float) BlockESPModule.TRACER_WIDTH);
         }
         bytes.flip();
     }

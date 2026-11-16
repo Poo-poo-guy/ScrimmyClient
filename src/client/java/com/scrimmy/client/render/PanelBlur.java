@@ -12,6 +12,17 @@ public final class PanelBlur implements AutoCloseable {
     private TextureTarget original, blurred;
     private TextureSetup texture;
 
+    /** HUD glass uses the theme strength without changing the user's menu blur preference. */
+    public void capture(Minecraft client, int strength) {
+        int previous = client.options.getMenuBackgroundBlurriness();
+        try {
+            if (previous != strength) client.options.menuBackgroundBlurriness().set(strength);
+            capture(client);
+        } finally {
+            if (previous != strength) client.options.menuBackgroundBlurriness().set(previous);
+        }
+    }
+
     public void capture(Minecraft client) {
         RenderTarget main = client.getMainRenderTarget();
         if (original == null || original.width != main.width || original.height != main.height) {

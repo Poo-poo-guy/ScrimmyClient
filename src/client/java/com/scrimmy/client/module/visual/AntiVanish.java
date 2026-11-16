@@ -18,26 +18,24 @@ import java.util.UUID;
 public final class AntiVanish extends Module {
     // Empty means everyone. To restrict warnings, use exact lowercase names, e.g. Set.of("admin", "moderator").
     private static final Set<String> STAFF_NAMES = Set.of();
-    public final NumberSetting range, cooldown, headSize, spinTurns;
-    public final BooleanSetting hiddenFromTab, sound, testEffect;
+    public final NumberSetting range, cooldown;
+    public final BooleanSetting hiddenFromTab, sound;
     private final Map<UUID, Integer> lastWarnings = new HashMap<>();
     private final AntiVanishEffect effect = new AntiVanishEffect();
     private int ticks;
-    private boolean restoring;
 
+    public static final double HEAD_SIZE = AntiVanishEffect.DEFAULT_HEAD_SIZE;
+    public static final double SPIN_TURNS = AntiVanishEffect.DEFAULT_SPIN_TURNS;
     public AntiVanish() {
         super("AntiVanish", "Warns about nearby loaded spectators or players missing from tab", Category.VISUAL);
-        group("detection", "Detection", true);
         range = n("range", "Range", 8, 1, 64, 1);
-        cooldown = n("cooldown", "Cooldown (s)", 30, 5, 300, 5);
-        hiddenFromTab = b("hiddenFromTab", "Hidden From Tab", false);
+        cooldown = n("cooldown", "Warning delay", 30, 5, 300, 5);
+        hiddenFromTab = b("hiddenFromTab", "Missing from tab", false);
         hiddenFromTab.tooltip("Also warn about players missing from tab. Can false-trigger on NPCs.");
-        group("warning", "Warning effect", true);
         sound = b("sound", "Sound", true);
-        headSize = n("headSize", "Head size", AntiVanishEffect.DEFAULT_HEAD_SIZE, .25, 2, .05);
-        spinTurns = n("spinTurns", "Spin turns", AntiVanishEffect.DEFAULT_SPIN_TURNS, .5, 4, .5);
-        testEffect = b("testEffect", "Test Effect", false);
-        testEffect.tooltip("Preview once with your own head while AntiVanish is enabled and you are in a world.");
+        range.tooltip("Warn about players within this many blocks.");
+        cooldown.tooltip("Wait this many seconds before warning about the same player again.");
+        sound.tooltip("Play a sound with the warning.");
     }
     private NumberSetting n(String key, String label, double value, double min, double max, double step) { return add(new NumberSetting(key, label, value, min, max, step)); }
     private BooleanSetting b(String key, String label, boolean value) { return add(new BooleanSetting(key, label, value)); }
@@ -47,15 +45,6 @@ public final class AntiVanish extends Module {
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> clear());
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> clear());
     }
-    @Override protected void onSettingChanged(Setting<?> setting) {
-        if (setting != testEffect || !testEffect.get()) return;
-        testEffect.set(false);
-        if (restoring || !enabled()) return;
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.player != null && mc.level != null) warn(mc.player);
-    }
-    @Override public void beginRestore() { restoring = true; }
-    @Override public void endRestore() { testEffect.set(false); restoring = false; }
     @Override protected void onEnable() { clear(); }
     @Override protected void onDisable() { clear(); }
     private void clear() { lastWarnings.clear(); ticks = 0; effect.stop(); }
@@ -77,6 +66,6 @@ public final class AntiVanish extends Module {
         }
     }
     private void warn(AbstractClientPlayer player) {
-        effect.warn(player.getName().getString(), player.getSkin(), sound.get(), headSize.get().floatValue(), spinTurns.get().floatValue());
+        effect.warn(player.getName().getString(), player.getSkin(), sound.get(), (float) HEAD_SIZE, (float) SPIN_TURNS);
     }
 }

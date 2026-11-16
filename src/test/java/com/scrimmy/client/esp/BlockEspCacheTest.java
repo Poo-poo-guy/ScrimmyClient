@@ -23,7 +23,7 @@ class BlockEspCacheTest {
         assertEquals(-1, BlockEspCache.nextSetBit(new long[64], 0));
     }
     /** Feed synthetic discoveries through the real bounded selection and lifecycle, without a world/GL context. */
-    @Test void nearestSelectionHandlesCapChangesAndRecyclesFadingVisuals() throws Exception {
+    @Test void nearestSelectionUsesFixedCapAndRecyclesFadingVisuals() throws Exception {
         BlockESPModule module = new BlockESPModule();
         BlockEspCache cache = module.cache;
         Class<?> validityType = Class.forName(BlockEspCache.class.getName() + "$Validity");
@@ -33,19 +33,19 @@ class BlockEspCacheTest {
         Field cap = BlockEspCache.class.getDeclaredField("selectionCap"); cap.setAccessible(true);
         Field pool = BlockEspCache.class.getDeclaredField("freeCount"); pool.setAccessible(true);
         for (int cycle = 0; cycle < 20; cycle++) {
-            module.maxBlocks.set(64.0); cap.setInt(cache, 64);
+            cap.setInt(cache, BlockESPModule.MAX_BLOCKS);
             Object validity = constructor.newInstance();
             int[] order = new int[1000];
             for (int i = 0; i < order.length; i++) order[i] = i + 1;
             Random random = new Random(cycle);
             for (int i = order.length - 1; i > 0; i--) { int j = random.nextInt(i + 1), old = order[i]; order[i] = order[j]; order[j] = old; }
             for (int id : order) offer.invoke(cache, (long)id, null, validity, (double)id*id);
-            // A live settings edit must not publish more than the new cap.
-            module.maxBlocks.set(16.0); publish.invoke(cache);
-            assertEquals(16, cache.size());
+            // Internal selection remains capped when more matches are discovered.
+            publish.invoke(cache);
+            assertEquals(BlockESPModule.MAX_BLOCKS, cache.size());
             Set<Long> positions = new HashSet<>();
             for (int i = 0; i < cache.size(); i++) { positions.add(cache.visual(i).entry.pos); cache.visual(i).alpha = .4; }
-            for (long i = 1; i <= 16; i++) assertTrue(positions.contains(i));
+            for (long i = 1; i <= BlockESPModule.MAX_BLOCKS; i++) assertTrue(positions.contains(i));
             Field alive = BlockEspCache.Entry.class.getDeclaredField("alive"); alive.setAccessible(true);
             BlockEspCache.Visual changed = cache.visual(0); alive.setBoolean(changed.entry, false);
             publish.invoke(cache);
