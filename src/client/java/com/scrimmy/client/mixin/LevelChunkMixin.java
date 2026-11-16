@@ -3,6 +3,7 @@ package com.scrimmy.client.mixin;
 import com.scrimmy.client.ScrimmyClient;
 import com.scrimmy.client.module.visual.BlockESPModule;
 import com.scrimmy.client.module.basefinding.Basefinding;
+import com.scrimmy.client.module.basefinding.DrillTrail;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.state.BlockState;
@@ -24,5 +25,8 @@ abstract class LevelChunkMixin {
         // Single-block and section-update packets both reach this setter.
         if (basefinding != null && basefinding.scanner != null)
             basefinding.scanner.changed(level, pos.getX() >> 4, pos.getZ() >> 4);
+        DrillTrail drillTrail = ScrimmyClient.MODULES.find(DrillTrail.class);
+        if (drillTrail != null && drillTrail.scanner != null)
+            drillTrail.scanner.changed(level, pos.getX() >> 4, pos.getZ() >> 4);
     }
 }

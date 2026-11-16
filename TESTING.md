@@ -29,3 +29,10 @@ Offline authentication/public-key requests were refused in the environment; inte
 - Profile CPU, GPU and allocation behavior while flying on target hardware. Marker geometry and label state are reused; Minecraft still manages its internal render submissions.
 
 The per-module removal/merge rationale is in [SETTINGS-CLEANUP.md](SETTINGS-CLEANUP.md). Scoring constants and implementation details are in [CHUNKFINDER.md](CHUNKFINDER.md).
+
+## DrillTrail regression checks
+
+- Automated tunnel fixtures cover X/Y/Z passages, cross-chunk continuity, horizontal and vertical bends, diagonal stairs, stair-lip spur removal, one-junction crossings, closed loops, short-pocket rejection, rooms/frontiers, water/placed-block tolerance, full lava plugs and deep drops. Trail memory, visits, caps, spline/bearing math and the exact six settings also have coverage.
+- Fabric 1.21.11 + Mesa software OpenGL: the temporary harness detected carved tunnels/branches/stairs/a shaft and room, drew trail/glow/markers/HUD, walked a section, retained evidence after moving 1,280 blocks away, returned, toggled all display controls, and disabled/disconnected. Startup used the previous config with DrillTrail absent. A disconnect assertion verified session history clears while disabled.
+- Chunk Finder ran alongside DrillTrail using the extracted shared world geometry. The harness asserted a positive read-only base score, then zero after Chunk Finder was disabled. DrillTrail continued independently.
+- The temporary dev initializer and source live outside the repository and are removed from the final clean artifact. See [DRILLTRAIL.md](DRILLTRAIL.md) for limits and constant locations.

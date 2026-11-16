@@ -41,6 +41,12 @@ In Basefinding, enable the module to mark nearby amethyst geodes and estimate th
 
 Show Geodes, Highlight Chunks, Nametags, Minimum Score and Range are the only extra controls. Color and glass styling follow the client theme. See [CHUNKFINDER.md](CHUNKFINDER.md) for scoring/rendering details and [SETTINGS-CLEANUP.md](SETTINGS-CLEANUP.md) for the per-module audit and config migrations.
 
+## DrillTrail
+
+Enable **Basefinding → DrillTrail** to follow regular 3×3 tunnels with a smooth glowing center line. It detects horizontal/vertical passages, turns, stairs and intersections, dims visited parts, marks ends/rooms/junctions and warns about observed hazards. A glass HUD pill points to the nearest unexplored lead. Nearby high Chunk Finder scores brighten the trail when that module is enabled.
+
+The six controls are Range, Dim Visited, Mark Leads, Show Direction, Hint HUD and Minimum Length. Trails survive chunk unloads within the current session and clear on world/server changes. Only loaded terrain can be scanned; irregular or heavily obstructed tunnels may be missed. See [DRILLTRAIL.md](DRILLTRAIL.md) for behavior, cache bounds, constants and validation.
+
 ## Configuration and extension
 
 `config/scrimmy-client.json` saves theme, keybinds, enabled states, the retained typed settings and panel layout. Custom positions use viewport fractions; automatic panels reflow after a resize. Writes are atomic, debounced, and flushed on GUI close and client shutdown. Missing fields keep defaults; invalid individual setting values are ignored. Older panel configs retain their saved positions, and missing categories receive automatic defaults.
@@ -53,4 +59,4 @@ GUI panels, controls, borders, tooltips, and scrollbars use the existing derivat
 
 Particles use procedural antialiased SDF geometry, with no texture atlas. All particles/trail samples are pooled. Fixed 50 ms simulation plus interpolated position/rotation makes motion independent of rendering FPS. Distance/frustum/alpha culling and a fixed 512-particle cap bound work. Camera-relative vertices are built during Fabric's extraction phase; reused CPU buffers and rotating GPU buffers draw the whole effect in at most two passes (additive light and normal alpha). Depth testing is enabled unless Through walls is selected; particles do not write depth. Normal particles are sorted back to front. GPU/CPU buffers are released on disable, disconnect, world change, and shutdown; Minecraft owns registered shader pipelines and shared index buffers.
 
-`./gradlew build` runs setting/config-migration, base-likelihood scoring, geode analysis, particle-math/pooling, AutoTotem slot-search, panel-layout, and GUI-transform regression tests. Hardware performance, multiplayer packet behavior, Retina sharpness, and visual compatibility with shader/renderer mods require in-game testing. See [TESTING.md](TESTING.md) for the checklist and changed-file map.
+`./gradlew build` runs setting/config-migration, base-likelihood scoring, geode/tunnel analysis, trail memory, particle-math/pooling, AutoTotem slot-search, panel-layout, and GUI-transform regression tests. Hardware performance, multiplayer packet behavior, Retina sharpness, and visual compatibility with shader/renderer mods require in-game testing. See [TESTING.md](TESTING.md) for the checklist and changed-file map.

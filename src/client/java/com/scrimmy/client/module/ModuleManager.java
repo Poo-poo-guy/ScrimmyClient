@@ -7,6 +7,7 @@ import com.scrimmy.client.module.visual.AntiVanish;
 import com.scrimmy.client.module.visual.LogoutGhosts;
 import com.scrimmy.client.module.visual.Freecam;
 import com.scrimmy.client.module.basefinding.Basefinding;
+import com.scrimmy.client.module.basefinding.DrillTrail;
 import net.minecraft.client.Minecraft;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -32,6 +33,7 @@ public final class ModuleManager {
         register(new LogoutGhosts());
         register(new Freecam());
         register(new Basefinding());
+        register(new DrillTrail());
     }
     private void register(Module module) {
         modules.add(module);

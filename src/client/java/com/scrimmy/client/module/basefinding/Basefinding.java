@@ -6,6 +6,7 @@ import com.scrimmy.client.module.Category;
 import com.scrimmy.client.module.Module;
 import com.scrimmy.client.render.ChunkFinderRenderer;
 import com.scrimmy.client.setting.*;
+import it.unimi.dsi.fastutil.longs.Long2DoubleOpenHashMap;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.*;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
@@ -31,6 +32,7 @@ public final class Basefinding extends Module {
     private final ExecutorService scoring = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "Scrimmy Base likelihood"); t.setDaemon(true); return t;
     });
+    private final Long2DoubleOpenHashMap chunkScores = new Long2DoubleOpenHashMap();
     private List<BaseLikelihood.Chunk> chunks = List.of();
     private List<GeodeAnalysis.Geode> geodes = List.of();
     private Future<List<BaseLikelihood.Chunk>> estimate;
@@ -56,6 +58,8 @@ public final class Basefinding extends Module {
     public boolean ready() { return world != null && server != null && loading == null; }
     public Collection<Detection> detections() { return Collections.unmodifiableCollection(detections.values()); }
     public List<BaseLikelihood.Chunk> chunks() { return chunks; }
+    /** Relative score for optional consumers; zero while disabled or outside the live grid. */
+    public double scoreAtChunk(int x, int z) { return active() ? chunkScores.get(BaseLikelihood.key(x, z)) : 0; }
     public List<GeodeAnalysis.Geode> geodes() { return geodes; }
 
     @Override public void initialize() {
@@ -75,7 +79,7 @@ public final class Basefinding extends Module {
     }
     private void clearLive() {
         if (estimate != null) estimate.cancel(true);
-        estimate = null; live.clear(); geodes = List.of(); chunks = List.of();
+        estimate = null; live.clear(); chunkScores.clear(); geodes = List.of(); chunks = List.of();
         dirty = true; centerX = Integer.MIN_VALUE;
     }
     private void session(ClientLevel next) {
@@ -116,7 +120,10 @@ public final class Basefinding extends Module {
         int x = mc.player.blockPosition().getX() >> 4, z = mc.player.blockPosition().getZ() >> 4;
         if (x != centerX || z != centerZ) { centerX = x; centerZ = z; dirty = true; }
         if (estimate != null && estimate.isDone()) {
-            try { chunks = estimate.get(); }
+            try {
+                chunks = estimate.get(); chunkScores.clear();
+                for (var chunk : chunks) chunkScores.put(chunk.key(), chunk.score());
+            }
             catch (CancellationException ignored) { }
             catch (Exception e) { error("Base likelihood failed", e); }
             estimate = null; renderer.refresh();
