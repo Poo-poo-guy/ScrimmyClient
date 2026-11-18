@@ -2,6 +2,7 @@ package com.scrimmy.client.basefinding;
 
 import com.scrimmy.client.module.basefinding.DrillTrail;
 import com.scrimmy.client.trail.TunnelAnalysis;
+import com.scrimmy.client.trail.TrailTimings;
 import it.unimi.dsi.fastutil.longs.*;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
@@ -15,18 +16,20 @@ import java.util.*;
 import java.util.concurrent.*;
 import static com.scrimmy.client.trail.TunnelAnalysis.*;
 
-/** Only load/change events dirty snapshots. World reads stay on ticks under a fixed deadline. */
+/** Load/change events dirty snapshots; live reads stay on ticks under an adaptive deadline. */
 public final class DrillTrailScanner implements AutoCloseable {
-    public static final long SNAPSHOT_BUDGET_NANOS = 1_000_000;
-    public static final int HALO = MAX_GAP + 2, COPY_SLICE = 256, DISCOVER_PER_TICK = 8;
+    public static final long MIN_BUDGET_NANOS = 200_000, MAX_BUDGET_NANOS = 2_000_000;
+    public static final int HALO = MAX_GAP + 2, COPY_SLICE = 1024, DISCOVER_PER_TICK = 8;
     private final DrillTrail module;
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
         Thread thread = new Thread(r, "Scrimmy DrillTrail scan"); thread.setDaemon(true); return thread;
     });
     private final Map<BlockState, Byte> kinds = new IdentityHashMap<>();
+    private final java.util.function.Predicate<BlockState> nonSolid=state->kinds.getOrDefault(state,SOLID)!=SOLID;
     private final LongOpenHashSet known = new LongOpenHashSet();
     private final Long2LongOpenHashMap revisions = new Long2LongOpenHashMap();
-    private final LinkedHashSet<Long> dirty = new LinkedHashSet<>();
+    private final Long2IntOpenHashMap dirty = new Long2IntOpenHashMap();
+    private long budget = 1_000_000, lastTick;
     private ClientLevel world;
     private Snapshot copying, submitted;
     private Future<TunnelAnalysis.Chunk> task;
@@ -53,15 +56,23 @@ public final class DrillTrailScanner implements AutoCloseable {
         if (world != level || !module.enabled()) return;
         int x = chunk.getPos().x, z = chunk.getPos().z;
         if (centerX != Integer.MIN_VALUE && (Math.abs(x - centerX) > range || Math.abs(z - centerZ) > range)) return;
-        known.add(chunk.getPos().toLong()); changed(level, x, z); dirty.add(chunk.getPos().toLong());
+        known.add(chunk.getPos().toLong()); changed(level, x, z); dirty.put(chunk.getPos().toLong(), 0);
     }
     public void changed(ClientLevel level, int x, int z) {
         if (world != level || !module.enabled()) return;
         if (centerX != Integer.MIN_VALUE && (Math.abs(x - centerX) > range + 1 || Math.abs(z - centerZ) > range + 1)) return;
         revisions.put(ChunkPos.asLong(x, z), ++revision);
-        // Cross-sections, intersection rays and hazard hints all read the neighboring halo.
-        for (int oz = -1; oz <= 1; oz++) for (int ox = -1; ox <= 1; ox++) {
-            long key = ChunkPos.asLong(x + ox, z + oz); if (known.contains(key)) dirty.add(key);
+        long target=ChunkPos.asLong(x,z);
+        if(known.contains(target))dirty.put(target,0);
+        // Recheck only the strips that can read this neighbor's halo. Existing interior
+        // evidence stays cached. Full invalidations always dominate strip invalidations.
+        for(int oz=-1;oz<=1;oz++)for(int ox=-1;ox<=1;ox++) {
+            if(ox==0&&oz==0)continue;
+            long key=ChunkPos.asLong(x+ox,z+oz);
+            if(!known.contains(key))continue;
+            int edges=(ox<0?2:ox>0?1:0)|(oz<0?8:oz>0?4:0);
+            if(!dirty.containsKey(key))dirty.put(key,edges);
+            else if(dirty.get(key)!=0)dirty.put(key,dirty.get(key)|edges);
         }
     }
     public void unload(ClientLevel level, LevelChunk chunk) {
@@ -73,7 +84,10 @@ public final class DrillTrailScanner implements AutoCloseable {
     public void tick(Minecraft mc) {
         if (world != mc.level) reset(mc.level);
         if (world == null || mc.player == null || mc.isPaused() || !module.enabled()) return;
-        long deadline = System.nanoTime() + SNAPSHOT_BUDGET_NANOS;
+        long now=System.nanoTime(), interval=lastTick==0?50_000_000:now-lastTick; lastTick=now;
+        budget=Math.max(MIN_BUDGET_NANOS,Math.min(MAX_BUDGET_NANOS,
+                interval>55_000_000 ? budget*3/4 : budget+25_000));
+        long deadline=now+budget;
         if (task != null && task.isDone()) {
             try { if (submitted.valid()) module.accept(task.get()); }
             catch (CancellationException ignored) { }
@@ -107,36 +121,59 @@ public final class DrillTrailScanner implements AutoCloseable {
             if (found != null && !known.contains(found.getPos().toLong())) load(world, found);
         }
         if (task != null) return;
+        if(copying!=null&&!copying.valid())copying=null;
         while (System.nanoTime() < deadline) {
             if (copying == null) {
                 if (dirty.isEmpty()) return;
-                var it = dirty.iterator(); long key = it.next(); it.remove();
+                long key=nextChunk(mc,cx,cz);
+                int edges=dirty.remove(key);
                 int x = (int)key, z = (int)(key >>> 32);
                 LevelChunk target = chunk(x, z);
                 if (target == null || Math.abs(x - cx) > r || Math.abs(z - cz) > r) continue;
-                copying = new Snapshot(x, z, target);
+                long timing=TrailTimings.start();
+                copying = new Snapshot(x, z, target, edges);
+                TrailTimings.end(TrailTimings.SNAPSHOT,timing);
             }
-            if (!copying.valid()) { copying = null; continue; }
-            if (!copying.copySlice()) continue;
+            long timing=TrailTimings.start();
+            boolean complete=copying.copySlice();
+            TrailTimings.end(TrailTimings.SNAPSHOT,timing);
+            if (!complete) continue;
             Snapshot ready = copying; copying = null;
-            if (!ready.hasCandidates) { module.accept(new TunnelAnalysis.Chunk(ChunkPos.asLong(ready.x, ready.z), List.of())); continue; }
+            if (!ready.hasCandidates) { module.accept(new TunnelAnalysis.Chunk(ChunkPos.asLong(ready.x, ready.z), List.of(), ready.edges)); continue; }
             submitted = ready;
             TunnelAnalysis.Volume volume = ready.volume();
-            task = worker.submit(() -> TunnelAnalysis.analyze(volume));
+            boolean smart=module.smart();
+            task = worker.submit(() -> TunnelAnalysis.analyze(volume,smart));
             return;
         }
     }
+    private long nextChunk(Minecraft mc,int cx,int cz) {
+        long best=0; double score=Double.MAX_VALUE;
+        var motion=mc.player.getDeltaMovement();
+        double speed=Math.hypot(motion.x,motion.z),mx=speed>.01?motion.x/speed:0,mz=speed>.01?motion.z/speed:0;
+        for(long key:dirty.keySet()) {
+            int dx=(int)key-cx,dz=(int)(key>>>32)-cz;
+            double priority=dx*dx+dz*dz-2*(dx*mx+dz*mz);
+            if(priority<score){score=priority;best=key;}
+        }
+        return best;
+    }
     private final class Snapshot {
-        final int x, z, minY, height, width = 16 + 2 * HALO;
+        final int x, z, minY, height, edges, width = 16 + 2 * HALO;
         final LevelChunk[] chunks = new LevelChunk[9];
         final long[] versions = new long[9];
         final boolean[] candidates, copySections;
+        final byte[][] uniform;
         byte[] blocks;
+        long[] airRows,solidRows;
         int filter, section, cursor;
+        int classified=-1;
         boolean hasCandidates;
-        Snapshot(int x, int z, LevelChunk target) {
+        Snapshot(int x, int z, LevelChunk target, int edges) {
+            this.edges=edges;
             this.x = x; this.z = z; minY = world.getMinY(); height = world.getMaxY() + 1 - minY;
             candidates = new boolean[target.getSections().length]; copySections = new boolean[candidates.length];
+            uniform=new byte[9][candidates.length];
             for (int i = 0; i < 9; i++) {
                 int nx = x + i % 3 - 1, nz = z + i / 3 - 1;
                 chunks[i] = chunk(nx, nz); versions[i] = revisions.get(ChunkPos.asLong(nx, nz));
@@ -162,25 +199,39 @@ public final class DrillTrailScanner implements AutoCloseable {
                 }
                 if (!hasCandidates) return true;
                 blocks = new byte[width * width * height];
+                airRows=new long[width*height];solidRows=new long[width*height];
             }
             if (section >= candidates.length) return true;
             if (!copySections[section]) { section++; return false; }
+            if(classified!=section) {
+                for(int i=0;i<chunks.length;i++) {
+                    if(chunks[i]==null)continue;
+                    LevelChunkSection states=chunks[i].getSections()[section];
+                    uniform[i][section]=states.hasOnlyAir()?AIR:!states.maybeHas(nonSolid)?SOLID:UNKNOWN;
+                }
+                classified=section;
+            }
             int end = Math.min(width * width * 16, cursor + COPY_SLICE);
             while (cursor < end) {
                 int index = cursor++, bx = index % width, bz = index / width % width, ly = index / (width * width);
                 int px = bx + 16 - HALO, pz = bz + 16 - HALO;
-                LevelChunk source = chunks[(pz >> 4) * 3 + (px >> 4)];
+                int sourceIndex=(pz>>4)*3+(px>>4);
+                LevelChunk source = chunks[sourceIndex];
                 if (source == null) continue;
                 LevelChunkSection states = source.getSections()[section];
-                blocks[((section * 16 + ly) * width + bz) * width + bx] = states.hasOnlyAir() ? AIR
-                        : kinds.getOrDefault(states.getBlockState(px & 15, ly, pz & 15), SOLID);
+                byte kind=uniform[sourceIndex][section];
+                if(kind==UNKNOWN)kind=kinds.getOrDefault(states.getBlockState(px&15,ly,pz&15),SOLID);
+                int row=(section*16+ly)*width+bz;
+                blocks[row*width+bx]=kind;
+                if(kind==AIR)airRows[row]|=1L<<bx;
+                if(kind==SOLID)solidRows[row]|=1L<<bx;
             }
             if (cursor == width * width * 16) { cursor = 0; section++; }
             return false;
         }
         TunnelAnalysis.Volume volume() {
             return new TunnelAnalysis.Volume(x * 16 - HALO, minY, z * 16 - HALO, width, height, width,
-                    x, z, blocks, candidates);
+                    x, z, blocks, candidates, airRows, solidRows, edges);
         }
     }
     @Override public void close() { reset(null); worker.shutdownNow(); }

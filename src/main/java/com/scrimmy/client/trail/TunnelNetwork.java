@@ -8,16 +8,24 @@ public final class TunnelNetwork {
     public static final int MAX_CONNECTORS = 65536, MAX_RAY_POSITIONS = 65536;
     public static final double MINIMUM_BRANCH_SPAN = 4, MINIMUM_REGULAR_FRACTION = .65;
     public enum Kind {
-        END("Dead end"), FRONTIER("Unexplored"), JUNCTION("Junction"), ROOM("Room opening"),
+        END("Dead end"), FRONTIER("Unexplored"), JUNCTION("Junction"), ROOM("Room opening"), PLUG("Plug"),
         LAVA("Lava"), DROP("Deep drop"), OBSTACLE("Obstacle");
         public final String label;
         Kind(String label) { this.label = label; }
         public boolean hazard() { return ordinal() >= LAVA.ordinal(); }
     }
     public record Marker(long key, Kind kind) {}
-    public record Path(long[] points) {}
-    public record Network(List<Path> paths, List<Marker> markers, Set<Long> points) {
-        public static final Network EMPTY = new Network(List.of(), List.of(), Set.of());
+    public record Path(long[] points,double length) {
+        public Path(long[] points) { this(points,TrailMath.pathLength(points)); }
+    }
+    /** Paths split at junctions for rendering, but a connected tunnel gets exactly one tag. */
+    public record Tunnel(long id, List<Path> paths, double length, boolean frontier) {}
+    public record Network(List<Path> paths, List<Marker> markers, Set<Long> points,
+            List<Tunnel> tunnels, Set<Long> plugs, Set<Long> frontiers) {
+        public Network(List<Path> paths,List<Marker> markers,Set<Long> points) {
+            this(paths,markers,points,List.of(),Set.of(),Set.of());
+        }
+        public static final Network EMPTY = new Network(List.of(), List.of(), Set.of(), List.of(), Set.of(), Set.of());
     }
     private static final class Node {
         final Sample sample;
@@ -31,9 +39,15 @@ public final class TunnelNetwork {
     }
     private TunnelNetwork() {}
 
-    public static Network build(Collection<Chunk> chunks, int minimumLength) {
+    public static Network build(Collection<Chunk> chunks,int minimumLength) { return build(chunks,minimumLength,true); }
+    public static Network build(Collection<Chunk> chunks, int minimumLength, boolean smart) {
+        long timing = TrailTimings.start();
+        try {
         Map<Long, Node> nodes = new LinkedHashMap<>();
-        for (Chunk chunk : chunks) for (Sample s : chunk.samples()) nodes.put(s.key(), new Node(s, true));
+        for(Chunk chunk:chunks)for(Sample source:chunk.samples()) {
+            Sample s=smart?source:new Sample(source.key(),source.normalAxes(),source.normalReach(),source.frontier(),0,0);
+            if(s.axes()!=0)nodes.put(s.key(),new Node(s,true));
+        }
         List<Node> regular = new ArrayList<>(nodes.values());
         for (Node n : regular) {
             if (Thread.currentThread().isInterrupted()) return Network.EMPTY;
@@ -67,8 +81,24 @@ public final class TunnelNetwork {
                 crossing.add(new Ray(n.sample.key(), dir, step));
             }
         }
+        Set<Long> plugPoints = new HashSet<>(), plugMarkers=new HashSet<>();
+        if (smart) for (Node n : regular) {
+            if (n.neighbors.size() != 1) continue;
+            for (int dir=0;dir<6;dir++) {
+                int span=n.sample.plug(dir);
+                if(span==0 || forward(n,dir))continue;
+                Node resumed=nodes.get(offset(n.sample.key(),dir,span));
+                if(resumed==null || !resumed.regular || (resumed.sample.axes() & 1<<(dir/2))==0)continue;
+                bridge(nodes,n.sample.key(),dir,span);
+                for(int step=1;step<span;step++)plugPoints.add(offset(n.sample.key(),dir,step));
+                plugMarkers.add(offset(n.sample.key(),dir,span/2));
+            }
+        }
+        if(smart)simplifyJoints(nodes);
         pruneTinySpurs(nodes);
         List<Path> paths = new ArrayList<>(); List<Marker> markers = new ArrayList<>();
+        List<Tunnel> tunnels = new ArrayList<>();
+        Set<Long> frontiers=new HashSet<>();
         Set<Long> accepted = new HashSet<>(), seen = new HashSet<>();
         Set<Edge> walked = new HashSet<>(); Set<String> hazardCells = new HashSet<>();
         for (Node first : nodes.values()) {
@@ -84,17 +114,21 @@ public final class TunnelNetwork {
             }
             // A short pocket cannot qualify merely because a bridge was added across open air.
             if (length < minimumLength || regularCount < Math.max(3, minimumLength * MINIMUM_REGULAR_FRACTION)) continue;
+            int pathStart=paths.size(); long id=Long.MAX_VALUE; boolean frontier=false;
             for (Node n : component) {
+                id=Math.min(id,n.sample.key());
                 accepted.add(n.sample.key());
                 int degree = n.neighbors.size(), outward = 0;
                 for (int d = 0; d < 6; d++)
                     if ((n.sample.axes() & 1 << (d / 2)) != 0 && !forward(n, d)) outward |= 1 << d;
-                if (degree >= 3) markers.add(new Marker(n.sample.key(), Kind.JUNCTION));
-                else if (degree == 1) markers.add(new Marker(n.sample.key(),
+                if((n.sample.frontier() & outward)!=0){frontier=true;frontiers.add(n.sample.key());}
+                if (smart && plugMarkers.contains(n.sample.key())) markers.add(new Marker(n.sample.key(),Kind.PLUG));
+                if (smart && degree >= 3) markers.add(new Marker(n.sample.key(), Kind.JUNCTION));
+                else if (smart && degree == 1) markers.add(new Marker(n.sample.key(),
                         (n.sample.frontier() & outward) != 0 ? Kind.FRONTIER :
                         (n.sample.rooms() & outward) != 0 ? Kind.ROOM : Kind.END));
                 int hazards = n.sample.hazards();
-                if (hazards != 0) {
+                if (smart && hazards != 0) {
                     Kind kind = (hazards & HAZARD_LAVA) != 0 ? Kind.LAVA : (hazards & HAZARD_DROP) != 0 ? Kind.DROP : Kind.OBSTACLE;
                     String cell = Math.floorDiv(n.sample.x(), 6) + ":" + Math.floorDiv(n.sample.y(), 6)
                             + ":" + Math.floorDiv(n.sample.z(), 6) + ":" + kind;
@@ -104,8 +138,46 @@ public final class TunnelNetwork {
             }
             // Closed loops have no degree-one/three seed, but still need a continuous trail.
             for (Node n : component) for (long next : n.neighbors) walk(nodes, n.sample.key(), next, walked, paths);
+            tunnels.add(new Tunnel(id,List.copyOf(paths.subList(pathStart,paths.size())),length,frontier));
         }
-        return new Network(List.copyOf(paths), List.copyOf(markers), Set.copyOf(accepted));
+        return new Network(List.copyOf(paths), List.copyOf(markers), Set.copyOf(accepted),List.copyOf(tunnels),Set.copyOf(plugPoints),Set.copyOf(frontiers));
+        } finally { TrailTimings.end(TrailTimings.CHAINING, timing); }
+    }
+    private static void simplifyJoints(Map<Long,Node> nodes) {
+        // Thin overlapping local orientations while preserving connectivity. Removing
+        // graph edges alone leaves two long parallel outlines around a tight zig-zag.
+        List<Long> candidates=new ArrayList<>(nodes.keySet());
+        for(long key:candidates) {
+            Node node=nodes.get(key);
+            if(node==null||node.sample.normalAxes()!=0||node.neighbors.size()<2)continue;
+            long first=node.neighbors.iterator().next();
+            Set<Long> seen=new HashSet<>();ArrayDeque<Long> queue=new ArrayDeque<>();
+            seen.add(first);queue.add(first);
+            while(!queue.isEmpty()) {
+                long current=queue.removeFirst();
+                for(long next:nodes.get(current).neighbors) {
+                    if(next==key || Math.abs(TrailMath.x(next)-node.sample.x())>2
+                            || Math.abs(TrailMath.y(next)-node.sample.y())>2
+                            || Math.abs(TrailMath.z(next)-node.sample.z())>2)continue;
+                    if(seen.add(next))queue.add(next);
+                }
+            }
+            if(seen.containsAll(node.neighbors)) {
+                for(long other:node.neighbors)nodes.get(other).neighbors.remove(key);
+                nodes.remove(key);
+            }
+        }
+        List<Edge> triangles=new ArrayList<>();
+        for(Node n:nodes.values())for(long other:n.neighbors)
+            if(n.sample.key()<other && (n.sample.normalAxes()==0 || nodes.get(other).sample.normalAxes()==0))
+                triangles.add(new Edge(n.sample.key(),other));
+        triangles.sort(Comparator.comparingDouble((Edge e)->-TrailMath.distance(e.a,e.b)));
+        for(Edge e:triangles) {
+            boolean redundant=false;
+            for(long middle:nodes.get(e.a).neighbors)
+                if(middle!=e.b&&nodes.get(middle).neighbors.contains(e.b)){redundant=true;break;}
+            if(redundant){nodes.get(e.a).neighbors.remove(e.b);nodes.get(e.b).neighbors.remove(e.a);}
+        }
     }
     private static void pruneTinySpurs(Map<Long, Node> nodes) {
         Set<Long> remove = new HashSet<>();

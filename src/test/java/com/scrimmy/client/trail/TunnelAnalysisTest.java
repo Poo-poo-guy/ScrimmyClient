@@ -69,6 +69,11 @@ class TunnelAnalysisTest {
         for(int y=-8;y<24;y++)for(int z=-8;z<56;z++)for(int x=16;x<56;x++)put(x,y,z,UNKNOWN);
         var only=analyze(new Volume(-8,-8,-8,WIDTH,HEIGHT,WIDTH,0,0,blocks,null));
         n=TunnelNetwork.build(List.of(only),12); assertEquals(1,markers(n,TunnelNetwork.Kind.FRONTIER));
+        assertTrue(n.tunnels().getFirst().frontier());assertEquals(1,n.frontiers().size());
+        var strict=analyze(new Volume(-8,-8,-8,WIDTH,HEIGHT,WIDTH,0,0,blocks,null),false);
+        var normal=TunnelNetwork.build(List.of(strict),12,false);
+        assertTrue(normal.tunnels().getFirst().frontier());assertEquals(1,normal.frontiers().size());
+        assertTrue(normal.markers().isEmpty());
     }
     @Test void anOpenFloorWarnsAboutADeepDrop() {
         x(2,45,4,8); box(20,-5,8,20,2,8);
@@ -100,5 +105,96 @@ class TunnelAnalysisTest {
     @Test void missingUnrelatedSectionsCannotCreateFalseCandidates() {
         x(2,45,4,8); boolean[] sections={false,false};
         assertTrue(analyze(new Volume(-8,-8,-8,WIDTH,HEIGHT,WIDTH,0,0,blocks,sections)).samples().isEmpty());
+    }
+
+    private TunnelNetwork.Network mode(boolean smart,int minimum) {
+        List<Chunk> chunks=new ArrayList<>();
+        for(int z=0;z<3;z++)for(int x=0;x<3;x++)
+            chunks.add(analyze(new Volume(-8,-8,-8,WIDTH,HEIGHT,WIDTH,x,z,blocks,null),smart));
+        return TunnelNetwork.build(chunks,minimum,smart);
+    }
+    @Test void normalKeepsTurnsAndStairsWithoutSmartFeatures() {
+        x(2,29,4,8);z(8,35,29,4);
+        var n=mode(false,12);assertEquals(1,n.paths().size());assertTrue(n.markers().isEmpty());assertTrue(n.plugs().isEmpty());
+        assertEquals(1,n.tunnels().size());
+    }
+    @Test void smartBridgesFlatRowsColumnsAndFullSlabsAcrossAChunkBorder() {
+        for(int slab=0;slab<3;slab++) {
+            blocks=solid();x(2,45,4,8);
+            if(slab==0)for(int z=7;z<=9;z++)put(16,3,z,SOLID);
+            if(slab==1)for(int y=3;y<=5;y++)put(16,y,8,SOLID);
+            if(slab==2)for(int y=3;y<=5;y++)for(int z=7;z<=9;z++)put(16,y,z,SOLID);
+            var n=mode(true,12);assertEquals(1,n.paths().size(),"slab "+slab);
+            assertEquals(1,markers(n,TunnelNetwork.Kind.PLUG));assertEquals(2,markers(n,TunnelNetwork.Kind.END));
+            assertEquals(2,mode(false,12).paths().size());
+        }
+    }
+    @Test void plugLookAheadRejectsScatteredOffsetAndThickBlockages() {
+        x(2,45,4,8);put(16,3,7,SOLID);put(16,5,9,SOLID);put(16,4,8,SOLID);
+        assertEquals(0,markers(mode(true,12),TunnelNetwork.Kind.PLUG));
+        blocks=solid();x(2,15,4,8);x(17,45,4,10);
+        assertEquals(0,markers(mode(true,12),TunnelNetwork.Kind.PLUG));
+        blocks=solid();x(2,45,4,8);
+        for(int bx=16;bx<=18;bx++)for(int y=3;y<=5;y++)for(int z=7;z<=9;z++)put(bx,y,z,SOLID);
+        assertEquals(0,markers(mode(true,12),TunnelNetwork.Kind.PLUG));
+    }
+    @Test void twoLayerPlugAndPlugAfterTurnUseTheLocalHeading() {
+        x(2,29,4,8);z(8,45,29,4);
+        for(int z=24;z<=25;z++)for(int y=3;y<=5;y++)for(int x=28;x<=30;x++)put(x,y,z,SOLID);
+        var n=mode(true,12);assertEquals(1,n.paths().size());assertFalse(n.plugs().isEmpty());
+        assertEquals(1,markers(n,TunnelNetwork.Kind.PLUG));
+    }
+    @Test void repeatedShortZigZagsAreOneTunnelAndNeverRooms() {
+        int x=3,z=5;
+        for(int i=0;i<10;i++){x(x,x+3,4,z);x+=3;z(z,z+3,x,4);z+=3;}
+        var n=mode(true,35);
+        assertEquals(1,n.paths().size());assertEquals(1,n.tunnels().size());
+        assertEquals(0,markers(n,TunnelNetwork.Kind.ROOM));assertEquals(0,markers(n,TunnelNetwork.Kind.JUNCTION));
+        assertTrue(n.tunnels().getFirst().length()>45);
+    }
+    @Test void alternatingVerticalStepsUsePathLength() {
+        for(int i=3;i<43;i++)x(i,i,(i%4<2?3:4),8);
+        var n=mode(true,40);assertEquals(1,n.tunnels().size());assertTrue(n.tunnels().getFirst().length()>=40);
+        assertEquals(0,markers(n,TunnelNetwork.Kind.ROOM));
+    }
+    @Test void normalFilteringRememberedSmartEvidenceCannotBridgeAPlug() {
+        x(2,45,4,8);for(int z=7;z<=9;z++)put(16,3,z,SOLID);
+        var cached=chunks();var n=TunnelNetwork.build(cached,12,false);
+        assertEquals(2,n.paths().size());assertTrue(n.plugs().isEmpty());assertTrue(n.markers().isEmpty());
+    }
+
+    @Test void twoBlockAlternatingCornersHaveNoFalseJunctionsOrRoomTags() {
+        int x=3,z=5;
+        for(int i=0;i<10;i++){x(x,x+2,4,z);x+=2;z(z,z+2,x,4);z+=2;}
+        var n=mode(true,25);assertEquals(1,n.paths().size());assertEquals(1,n.tunnels().size());
+        assertEquals(0,markers(n,TunnelNetwork.Kind.JUNCTION));assertEquals(0,markers(n,TunnelNetwork.Kind.ROOM));
+    }
+
+    @Test void aThreeHighRoomDoesNotBecomeAPerimeterTunnel() {
+        box(2,3,2,44,5,44);assertTrue(mode(true,12).paths().isEmpty());
+    }
+
+    @Test void strongerSmoothingStaysInsideTightZigZagAir() {
+        int x=3,z=5;for(int i=0;i<10;i++){x(x,x+2,4,z);x+=2;z(z,z+2,x,4);z+=2;}
+        var v=new Volume(-8,-8,-8,WIDTH,HEIGHT,WIDTH,0,0,blocks,null);
+        for(var path:mode(true,12).paths()) {
+            long[] p=path.points();
+            for(int i=0;i<p.length-1;i++)for(int step=0;step<=12;step++) {
+                long a=p[Math.max(0,i-1)],b=p[i],c=p[i+1],d=p[Math.min(p.length-1,i+2)];double t=step/12.0;
+                double sx=TrailMath.smoothSpline(TrailMath.x(a),TrailMath.x(b),TrailMath.x(c),TrailMath.x(d),t,true)+.5;
+                double sy=TrailMath.smoothSpline(TrailMath.y(a),TrailMath.y(b),TrailMath.y(c),TrailMath.y(d),t,true)+.5;
+                double sz=TrailMath.smoothSpline(TrailMath.z(a),TrailMath.z(b),TrailMath.z(c),TrailMath.z(d),t,true)+.5;
+                assertEquals(AIR,v.at((int)Math.floor(sx),(int)Math.floor(sy),(int)Math.floor(sz)));
+            }
+        }
+    }
+
+    @Test void repeatedLeftRightTurnsQualifyByTheirWalkedLength() {
+        int bx=3,bz=5;
+        for(int i=0;i<10;i++) {
+            x(bx,bx+4,4,bz);bx+=4;int next=bz==5?9:5;z(Math.min(bz,next),Math.max(bz,next),bx,4);bz=next;
+        }
+        var n=mode(true,60);assertEquals(1,n.paths().size());assertEquals(1,n.tunnels().size());
+        assertTrue(n.tunnels().getFirst().length()>=60);assertEquals(0,markers(n,TunnelNetwork.Kind.ROOM));
     }
 }

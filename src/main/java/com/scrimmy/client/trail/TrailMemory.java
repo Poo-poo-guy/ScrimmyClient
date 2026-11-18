@@ -10,6 +10,15 @@ public final class TrailMemory {
     private final Set<Long> visited = new HashSet<>();
     private int samples;
     public boolean put(TunnelAnalysis.Chunk chunk) {
+        if (chunk.edges() != 0) {
+            var old = chunks.get(chunk.key());
+            List<TunnelAnalysis.Sample> merged = new ArrayList<>();
+            if (old != null) for (var sample : old.samples())
+                if (!TunnelAnalysis.inEdges(sample.x(), sample.z(), chunk.edges())) merged.add(sample);
+            merged.addAll(chunk.samples());
+            merged.sort(Comparator.comparingLong(TunnelAnalysis.Sample::key));
+            chunk = new TunnelAnalysis.Chunk(chunk.key(), merged);
+        }
         if (chunk.equals(chunks.get(chunk.key()))) return false;
         TunnelAnalysis.Chunk previous = chunks.remove(chunk.key());
         if (previous != null) samples -= previous.samples().size();
