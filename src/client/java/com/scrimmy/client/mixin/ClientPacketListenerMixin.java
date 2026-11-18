@@ -3,6 +3,7 @@ package com.scrimmy.client.mixin;
 import com.scrimmy.client.ScrimmyClient;
 import com.scrimmy.client.module.visual.HitParticles;
 import com.scrimmy.client.module.basefinding.Basefinding;
+import com.scrimmy.client.module.basefinding.DrillTrail;
 import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientPacketListener;
@@ -20,6 +21,9 @@ abstract class ClientPacketListenerMixin {
         Basefinding module = ScrimmyClient.MODULES.find(Basefinding.class);
         if (module != null && module.scanner != null)
             module.scanner.changed(Minecraft.getInstance().level, packet.getX(), packet.getZ());
+        DrillTrail drill = ScrimmyClient.MODULES.find(DrillTrail.class);
+        if (drill != null && drill.scanner != null)
+            drill.scanner.changed(Minecraft.getInstance().level, packet.getX(), packet.getZ());
     }
     @Inject(method = "handleDamageEvent", at = @At("TAIL"))
     private void scrimmy$damage(ClientboundDamageEventPacket packet, CallbackInfo ci) {

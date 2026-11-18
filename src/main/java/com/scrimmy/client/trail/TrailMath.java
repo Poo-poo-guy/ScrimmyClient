@@ -15,6 +15,17 @@ public final class TrailMath {
         return .5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t * t
                 + (-a + 3 * b - 3 * c + d) * t * t * t);
     }
+    public static double smoothSpline(double a,double b,double c,double d,double t,boolean smart) {
+        double start=smart?.2*a+.6*b+.2*c:b;
+        double end=smart?.2*b+.6*c+.2*d:c;
+        double value=spline(a,start,end,d,t);
+        return Math.max(Math.min(b,c)-.3,Math.min(Math.max(b,c)+.3,value));
+    }
+    public static double pathLength(long[] points) {
+        double length=0;
+        for(int i=1;i<points.length;i++)length+=distance(points[i-1],points[i]);
+        return length;
+    }
     public static double distance(long a, long b) {
         return Math.sqrt(square(x(a) - x(b)) + square(y(a) - y(b)) + square(z(a) - z(b)));
     }

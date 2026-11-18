@@ -33,4 +33,15 @@ class TrailMemoryTest {
         assertEquals(0,TrailMath.bearing(0,10,0),1e-9); assertEquals(-90,TrailMath.bearing(10,0,0));
         assertEquals(0,TrailMath.fade(100,96,.65)); assertEquals(1,TrailMath.fade(10,96,.65));
     }
+
+    @Test void aNeighborStripUpdatePreservesTheOtherHalfAndVisits() {
+        TrailMemory memory=new TrailMemory();memory.put(chunk());
+        var n=TunnelNetwork.build(memory.snapshot(),12);memory.visit(n,12.5,-19.5,8.5);
+        memory.put(new TunnelAnalysis.Chunk(TrailMath.chunk(0,0),List.of(),1));
+        assertEquals(8,memory.sampleCount());
+        assertTrue(memory.snapshot().getFirst().samples().stream().allMatch(s->s.x()>=8));
+        assertTrue(memory.visited(TrailMath.key(12,-20,8)));
+        var edge=new TunnelAnalysis.Chunk(TrailMath.chunk(0,0),chunk().samples().subList(0,8),1);
+        assertTrue(memory.put(edge));assertFalse(memory.put(edge));assertEquals(16,memory.sampleCount());
+    }
 }

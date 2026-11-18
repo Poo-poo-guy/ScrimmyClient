@@ -43,9 +43,9 @@ Show Geodes, Highlight Chunks, Nametags, Minimum Score and Range are the only ex
 
 ## DrillTrail
 
-Enable **Basefinding → DrillTrail** to follow regular 3×3 tunnels with a smooth glowing center line. It detects horizontal/vertical passages, turns, stairs and intersections, dims visited parts, marks ends/rooms/junctions and warns about observed hazards. A glass HUD pill points to the nearest unexplored lead. Nearby high Chunk Finder scores brighten the trail when that module is enabled.
+Enable **Basefinding → DrillTrail** to follow 3×3 tunnels with a smooth glowing center line. **Normal** finds clean passages, simple turns and stairs with direction pulses, visited dimming and glass length tags. **Smart** (default) extends the same detector with aligned plug bridging, frequent zig-zags, lead/hazard markers, a glass lead HUD and optional Chunk Finder score brightening.
 
-The six controls are Range, Dim Visited, Mark Leads, Show Direction, Hint HUD and Minimum Length. Trails survive chunk unloads within the current session and clear on world/server changes. Only loaded terrain can be scanned; irregular or heavily obstructed tunnels may be missed. See [DRILLTRAIL.md](DRILLTRAIL.md) for behavior, cache bounds, constants and validation.
+The six controls are Mode, Range, Minimum Length, Dim Visited, Show Direction and Nametags. Each connected tunnel gets one tag with its walked length, a **+** for unknown continuation, or the remaining **blocks ahead** when inside. Dirty-chunk/neighbor-strip caching, grid seeds, packed bitmaps and worker analysis accelerate rescanning. Trails and visits survive chunk unloads within the session and clear on world/server changes. See [DRILLTRAIL.md](DRILLTRAIL.md) for timings, validation, constants and limits.
 
 ## Configuration and extension
 

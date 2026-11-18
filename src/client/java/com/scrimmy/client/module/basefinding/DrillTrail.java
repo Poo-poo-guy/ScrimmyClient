@@ -16,14 +16,14 @@ import org.slf4j.LoggerFactory;
 import java.util.concurrent.*;
 
 public final class DrillTrail extends Module {
-    public static final int GRAPH_INTERVAL_TICKS = 10, VISUAL_INTERVAL_TICKS = 5;
+    public static final int GRAPH_INTERVAL_TICKS = 2, VISUAL_INTERVAL_TICKS = 5;
+    public final ModeSetting mode = add(new ModeSetting("mode", "Mode", "Smart", "Normal", "Smart"));
     public final NumberSetting range = add(new NumberSetting("range", "Range", 96, 32, 256, 16));
-    public final BooleanSetting dimVisited = add(new BooleanSetting("dimVisited", "Dim Visited", true));
-    public final BooleanSetting markLeads = add(new BooleanSetting("markLeads", "Mark Leads", true));
-    public final BooleanSetting showDirection = add(new BooleanSetting("showDirection", "Show Direction", true));
-    public final BooleanSetting hintHud = add(new BooleanSetting("hintHud", "Hint HUD", true));
     public final NumberSetting minimumLength = add(new NumberSetting("minimumLength", "Minimum Length",
             TunnelAnalysis.DEFAULT_MINIMUM_LENGTH, 6, 64, 1));
+    public final BooleanSetting dimVisited = add(new BooleanSetting("dimVisited", "Dim Visited", true));
+    public final BooleanSetting showDirection = add(new BooleanSetting("showDirection", "Show Direction", true));
+    public final BooleanSetting nametags = add(new BooleanSetting("nametags", "Nametags", true));
     public final TrailMemory memory = new TrailMemory();
     public DrillTrailScanner scanner;
     public DrillTrailRenderer renderer;
@@ -40,17 +40,18 @@ public final class DrillTrail extends Module {
         super("DrillTrail", "Follow regular 3 by 3 tunnels toward unexplored leads", Category.BASEFINDING);
         range.tooltip("Scan and draw tunnels within this many blocks.");
         dimVisited.tooltip("Make parts you have already passed through less bright.");
-        markLeads.tooltip("Mark tunnel ends, branches, and room openings.");
+        mode.tooltip("Normal finds clean tunnels; Smart also follows plugs and zig-zags.");
         showDirection.tooltip("Move a soft pulse along the trail toward unexplored parts.");
-        hintHud.tooltip("Point to the nearest unexplored lead and show its distance.");
+        nametags.tooltip("Show one glass tag with the tunnel length or distance ahead.");
         minimumLength.tooltip("Ignore tunnels shorter than this many blocks.");
     }
+    public boolean smart() { return "Smart".equals(mode.get()); }
     public ClientLevel world() { return world; }
     public TunnelNetwork.Network network() { return network; }
     /** Optional read-only integration; DrillTrail never enables or changes Chunk Finder. */
     public double baseScore(int x, int z) {
         Basefinding finder = ScrimmyClient.MODULES.find(Basefinding.class);
-        return finder == null ? 0 : finder.scoreAtChunk(x, z);
+        return !smart() || finder == null ? 0 : finder.scoreAtChunk(x, z);
     }
     @Override public void initialize() {
         scanner = new DrillTrailScanner(this); scanner.initialize();
@@ -84,6 +85,12 @@ public final class DrillTrail extends Module {
     }
     @Override protected void onSettingChanged(Setting<?> setting) {
         if (setting == minimumLength) dirty = true;
+        if (setting == mode) {
+            if (task != null) task.cancel(true);
+            task = null; dirty = true; network=TunnelNetwork.Network.EMPTY;
+            if (scanner != null) scanner.reset(world);
+            if (renderer != null) renderer.clear();
+        }
         if (renderer != null) renderer.refresh();
     }
     public void accept(TunnelAnalysis.Chunk chunk) {
@@ -100,10 +107,12 @@ public final class DrillTrail extends Module {
             task = null; renderer.refresh();
         }
         scanner.tick(mc);
+        TrailTimings.log();
         if (ticks % 2 == 0) memory.visit(network, mc.player.getX(), mc.player.getY() + .9, mc.player.getZ());
         if (ticks % GRAPH_INTERVAL_TICKS == 0 && dirty && task == null) {
             var snapshot = memory.snapshot(); int minimum = minimumLength.get().intValue();
-            task = worker.submit(() -> TunnelNetwork.build(snapshot, minimum)); dirty = false;
+            boolean smart = smart();
+            task = worker.submit(() -> TunnelNetwork.build(snapshot, minimum, smart)); dirty = false;
         }
         if (ticks % VISUAL_INTERVAL_TICKS == 0) renderer.refresh();
     }
