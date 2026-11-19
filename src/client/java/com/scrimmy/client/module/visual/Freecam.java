@@ -89,7 +89,7 @@ public final class Freecam extends Module {
         int steps = camera.scrollSteps(delta * mc.options.mouseWheelSensitivity().get());
         if (steps == 0) return;
         speed.set(FreecamMotion.scrollSpeed(speed.get(), steps));
-        player.displayClientMessage(Component.literal("Freecam speed: " + Math.round(speed.get() * 10) / 10.0 + " blocks/s"), true);
+        player.displayClientMessage(com.scrimmy.client.render.ClientFonts.component("Freecam speed: " + Math.round(speed.get() * 10) / 10.0 + " blocks/s"), true);
     }
     /** Even auto-jump must not turn a camera movement into a real player input. */
     private static final class CameraInput extends ClientInput {

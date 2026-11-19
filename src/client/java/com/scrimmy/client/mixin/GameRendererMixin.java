@@ -12,6 +12,15 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(GameRenderer.class)
 abstract class GameRendererMixin {
+    @Inject(method = "render", at = @At("HEAD"))
+    private void scrimmy$uiFrame(CallbackInfo ci) {
+        com.scrimmy.client.animation.AnimationClock.UI.frame(System.nanoTime());
+        com.scrimmy.client.render.ClientFonts.frame();
+        com.scrimmy.client.render.ThemeSurfaces.frame();
+        com.scrimmy.client.render.PanelBlur.beginFrame();
+        com.scrimmy.client.render.RoundedRenderer.beginFrame();
+    }
+
     @Inject(method = {"bobHurt", "bobView"}, at = @At("HEAD"), cancellable = true)
     private void scrimmy$steadyCamera(PoseStack pose, float partial, CallbackInfo ci) {
         Freecam module = Freecam.current();

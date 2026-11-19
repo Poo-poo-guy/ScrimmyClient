@@ -23,6 +23,14 @@ public final class ScrimmyClient implements ClientModInitializer {
 
     @Override public void onInitializeClient() {
         CONFIG.load();
+        var resources = net.fabricmc.fabric.api.resource.v1.ResourceLoader.get(net.minecraft.server.packs.PackType.CLIENT_RESOURCES);
+        var uiReload = net.minecraft.resources.Identifier.fromNamespaceAndPath("scrimmyclient", "ui");
+        resources.registerReloader(uiReload, (net.minecraft.server.packs.resources.ResourceManagerReloadListener) manager -> {
+            com.scrimmy.client.render.PanelBlur.release();
+            com.scrimmy.client.render.ClientFonts.reload();
+        });
+        resources.addReloaderOrdering(net.fabricmc.fabric.api.resource.v1.reloader.ResourceReloaderKeys.Client.FONTS, uiReload);
+        net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents.CLIENT_STOPPING.register(client -> com.scrimmy.client.render.PanelBlur.release());
         MODULES.all().forEach(Module::initialize);
         ClientTickEvents.END_CLIENT_TICK.register(this::tick);
     }
