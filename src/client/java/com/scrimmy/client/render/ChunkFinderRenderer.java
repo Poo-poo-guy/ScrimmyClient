@@ -60,7 +60,7 @@ public final class ChunkFinderRenderer implements AutoCloseable {
 
     public void toast(String text) {
         toastText = text; toastTime = System.nanoTime();
-        toastWidth = Minecraft.getInstance().font.width(text) + 20;
+        toastWidth = ClientFonts.width(text) + 20;
     }
 
     public void clear() {
@@ -95,9 +95,9 @@ public final class ChunkFinderRenderer implements AutoCloseable {
             v.width = v.depth = 16; v.height = .2f;
             v.score = chunk.score(); v.primary = chunk.primary(); v.wanted = true;
             v.label = v.primary ? "Best estimate" : "Base chance";
-            v.labelWidth = mc.font.width(v.label);
+            v.labelWidth = ClientFonts.width(v.label);
             String score = Math.round(chunk.score()) + "/100";
-            if (!score.equals(v.text)) { v.text = score; v.textWidth = mc.font.width(score); }
+            if (!score.equals(v.text)) { v.text = score; v.textWidth = ClientFonts.width(score); }
         }
         count = 0;
         if (module.active() && module.showGeodes.get()) for (var geode : module.geodes()) {
@@ -199,6 +199,7 @@ public final class ChunkFinderRenderer implements AutoCloseable {
             Visual v = projected[i];
             if (v.primary != (pass == 0) || v.labelAlpha < .01) continue;
             float x = (v.screenX + 1) * screenWidth / 2f, y = (1 - v.screenY) * screenHeight / 2f;
+            v.labelWidth = ClientFonts.width(v.label); v.textWidth = ClientFonts.width(v.text);
             int width = Math.max(v.labelWidth, v.textWidth) + 16;
             float half = width * v.labelScale / 2, height = 30 * v.labelScale;
             boolean overlap = false;
@@ -214,15 +215,15 @@ public final class ChunkFinderRenderer implements AutoCloseable {
             g.pose().pushMatrix(); g.pose().translate(x, y); g.pose().scale(v.labelScale, v.labelScale);
             int scoreColor = GradientSetting.mix(0xff819ab7, accent, v.score / 100);
             int tint = ScrimmyClient.THEME.glassTint.get();
-            int background = (tint & 0xffffff) | ((int)(ScrimmyClient.THEME.opacity.get() * 255) << 24);
+            int background = ThemeSurfaces.fill();
             v.panel.draw(g, width, 30, Math.min(15, ScrimmyClient.THEME.radius.get().intValue() + 4),
                     alpha(background, v.labelAlpha),
                     alpha(accent, v.labelAlpha * (v.primary ? .6 : .25)),
                     alpha(v.primary ? (accent & 0xffffff) | 0x44000000 : 0x40000000, v.labelAlpha),
                     screen, blur.texture());
-            g.drawString(mc.font, v.label, -v.labelWidth / 2, 4,
-                    alpha(0xffc4d3e3, v.labelAlpha), false);
-            g.drawString(mc.font, v.text, -v.textWidth / 2, 17, alpha(scoreColor, v.labelAlpha), false);
+            ClientFonts.draw(g, v.label, -v.labelWidth / 2, 4,
+                    alpha(0xffc4d3e3, v.labelAlpha));
+            ClientFonts.draw(g, v.text, -v.textWidth / 2, 17, alpha(scoreColor, v.labelAlpha));
             g.pose().popMatrix();
         }
     }
@@ -232,13 +233,14 @@ public final class ChunkFinderRenderer implements AutoCloseable {
         double age = (System.nanoTime() - toastTime) / 1_000_000_000.0;
         if (age > 5) { toastText = null; return; }
         double opacity = Math.min(1, age / .3) * Math.min(1, (5 - age) / .5);
+        toastWidth = Math.max(ClientFonts.width(toastText), ClientFonts.width("ChunkFinder")) + 20;
         int width = Math.min(toastWidth, screenWidth - 16);
         float x = screenWidth - width / 2f - 8 + (float)((1 - opacity) * (width + 8));
         g.pose().pushMatrix(); g.pose().translate(x, 12);
         toastPanel.draw(g, width, 34, 8, alpha(0xe0152231, opacity),
                 alpha(ScrimmyClient.THEME.accent.get(), opacity * .5), alpha(0x40000000, opacity), screen);
-        g.drawString(mc.font, "Chunk Finder", -width / 2 + 10, 5, alpha(ScrimmyClient.THEME.accent.get(), opacity), false);
-        g.drawString(mc.font, toastText, -width / 2 + 10, 20, alpha(0xffedf6ff, opacity), false);
+        ClientFonts.draw(g, "ChunkFinder", -width / 2 + 10, 5, alpha(ScrimmyClient.THEME.accent.get(), opacity));
+        ClientFonts.draw(g, toastText, -width / 2 + 10, 20, alpha(0xffedf6ff, opacity));
         g.pose().popMatrix();
     }
 

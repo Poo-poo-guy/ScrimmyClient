@@ -142,7 +142,7 @@ public final class DrillTrailRenderer implements AutoCloseable {
                 int compass = Math.floorMod((int)Math.floor((Math.toDegrees(Math.atan2(lx, -lz)) + 22.5) / 45), 8);
                 String vertical = TrailMath.y(lead.key()) - py > 3 ? " / Up" : TrailMath.y(lead.key()) - py < -3 ? " / Down" : "";
                 hint = lead.kind().label + "  " + Math.round(Math.sqrt(leadDistance)) + " m  ·  " + direction + vertical + "  " + COMPASS[compass];
-                hintWidth = mc.font.width(hint) + 22; hintWanted = module.smart();
+                hintWidth = ClientFonts.width(hint) + 22; hintWanted = module.smart();
             }
         }
         segments = cache.values().toArray(Segment[]::new); markers = markerCache.values().toArray(Marker[]::new);
@@ -240,15 +240,16 @@ public final class DrillTrailRenderer implements AutoCloseable {
         else blur.close();
         nametags.draw(g,mc,screen,screenWidth,screenHeight,blur);
         if(hintAlpha<.003||hint==null)return;
+        hintWidth = ClientFonts.width(hint) + 22;
         int width = Math.min(hintWidth, screenWidth - 16), accent = ScrimmyClient.THEME.accent.get();
-        int tint = (ScrimmyClient.THEME.glassTint.get() & 0xffffff) | (int)(255 * ScrimmyClient.THEME.opacity.get()) << 24;
+        int tint = ThemeSurfaces.fill();
         g.pose().pushMatrix(); g.pose().translate(screenWidth / 2f, screenHeight - 65 + (float)((1 - hintAlpha) * 8));
         panel.draw(g, width, 23, Math.min(11, ScrimmyClient.THEME.radius.get().intValue() + 3), alpha(tint, hintAlpha),
                 alpha(accent, hintAlpha * .45), alpha(accent, hintAlpha * .13), screen, blur.texture());
         g.pose().translate(0, 7);
         float textScale = Math.min(1, (width - 22f) / Math.max(1, hintWidth - 22f));
         g.pose().scale(textScale, textScale);
-        g.drawString(mc.font, hint, -hintWidth / 2 + 11, 0, alpha(0xffeaf3ff, hintAlpha), false);
+        ClientFonts.draw(g, hint, -hintWidth / 2 + 11, 0, alpha(0xffeaf3ff, hintAlpha));
         g.pose().popMatrix();
     }
     private static int alpha(int color, double factor) { return (int)Math.min(255, (color >>> 24) * Math.max(0, factor)) << 24 | (color & 0xffffff); }

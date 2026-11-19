@@ -1,6 +1,10 @@
 package com.scrimmy.client.gui;
 
 import com.scrimmy.client.config.ConfigStore;
+import com.scrimmy.client.animation.*;
+import com.scrimmy.client.render.ClientFonts;
+import com.scrimmy.client.render.ThemeSurfaces;
+import com.scrimmy.client.theme.UiTokens;
 import com.scrimmy.client.module.Category;
 import com.scrimmy.client.module.Module;
 import com.scrimmy.client.module.ModuleManager;
@@ -26,9 +30,9 @@ import java.util.List;
 import java.util.Map;
 
 public final class ClickGui extends Screen {
-    private static final int HEADER = 30, ROW = 36, SETTING = 34, COLOR = 120;
+    private static final int HEADER = UiTokens.HEADER, ROW = UiTokens.ROW, SETTING = UiTokens.SETTING, COLOR = UiTokens.COLOR;
     private static final String APPEARANCE = "ScrimmyClient+";
-    private static final int TEXT = 0xffe5f1f8, MUTED = 0xff9cb3c2;
+    private static final int TEXT = UiTokens.TEXT, MUTED = UiTokens.MUTED;
     private static final int[] PRESETS = {0xff70d6db, 0xffb693ee, 0xfff494a5, 0xffffcf78};
     private final Theme theme;
     private final ModuleManager modules;
@@ -38,22 +42,24 @@ public final class ClickGui extends Screen {
     private final PanelBlur blur = new PanelBlur();
     private final Visual appearance = new Visual();
     private final Map<Module, Visual> visuals = new IdentityHashMap<>();
-    private final Map<Setting<?>, Float> fills = new IdentityHashMap<>();
-    private final Map<Setting<?>, Float> toggles = new IdentityHashMap<>();
-    private final Map<Setting<?>, Float> hovers = new IdentityHashMap<>();
-    private final Map<NumberSetting, Double> labelValues = new IdentityHashMap<>();
-    private final Map<NumberSetting, String> labels = new IdentityHashMap<>();
-    private final Map<Setting<?>, Boolean> expandedControls = new IdentityHashMap<>();
-    private final Map<Setting<?>, Float> controlExpansion = new IdentityHashMap<>();
-    private final Map<GroupSetting, Float> groupExpansion = new IdentityHashMap<>();
+    private final Map<Setting<?>, ControlVisual> controls = new IdentityHashMap<>();
     private final Map<GradientSetting, Integer> gradientSelection = new IdentityHashMap<>();
     private final Map<BlockListSetting, String> blockSelection = new IdentityHashMap<>();
     private BlockListSetting editingBlocks;
     private String blockInput = "", blockStatus = "Enter ID to add; click x to remove";
     private boolean gradientPosition, scrolling;
     private final float[] hsb = new float[3];
-    private long lastFrame = System.nanoTime();
-    private float open, dt = 1f / 60f, scale;
+    private final Animation opening = new Animation(), tooltipFade = new Animation();
+    private final Animation scaleMotion = new Animation(), zoomMotion = new Animation(1);
+    private PanelLayout cachedLayout;
+    private int layoutWidth = -1, layoutHeight = -1, layoutPanelWidth = -1;
+    private float drawOpacity = 1, originX, originY;
+    private final Animation guiBinding = new Animation();
+    private AnimationStyle style;
+    private float motionFrequency, motionDamping, motionSlide, motionStagger;
+    private String[] tooltipLines = new String[0];
+    private int tooltipWidth, tooltipFontRevision = -1;
+    private float open, dt, scale;
     private boolean closing;
     private Panel draggedPanel, activePanel;
     private float dragOffsetX, dragOffsetY;
@@ -64,18 +70,28 @@ public final class ClickGui extends Screen {
     private boolean bindingGui;
     private GuiTransform transform;
     private int previousGameBlur = -1, drawnAccent;
+    private final AnimatedColor accentMotion;
     private String tooltip;
     private float tooltipTime;
-    private String lastTooltip;
+    private String lastTooltip, hoveredTooltip;
 
     public ClickGui(Theme theme, ModuleManager modules, ConfigStore config) {
         super(Component.literal("Scrimmy Client"));
         this.theme = theme; this.modules = modules; this.config = config;
         scale = theme.guiScale.get().floatValue();
+        scaleMotion.snap(scale);
+        style = AnimationStyle.get(theme.animation.get());
+        motionFrequency = (float)style.frequency(); motionDamping = (float)style.damping();
+        motionSlide = style.slide(); motionStagger = style.stagger();
         transform = new GuiTransform(scale, minecraft.getWindow().getGuiScale());
         drawnAccent = theme.accent.get();
+        accentMotion = new AnimatedColor(drawnAccent);
         for (Category category : Category.values()) panels.add(new Panel(category));
-        modules.all().forEach(m -> visuals.put(m, new Visual()));
+        modules.all().forEach(m -> {
+            visuals.put(m, new Visual());
+            for (Setting<?> setting : m.settings()) controls.put(setting, new ControlVisual(setting));
+        });
+        for (Setting<?> setting : theme.settings()) controls.put(setting, new ControlVisual(setting));
     }
 
     @Override public boolean isPauseScreen() { return false; }
@@ -99,62 +115,84 @@ public final class ClickGui extends Screen {
         super.resize(width, height);
     }
     private void updateBlur() {
-        int wanted = theme.blur.get().intValue();
+        int wanted = Math.round(theme.blur.get().floatValue() * ThemeSurfaces.glass() * clamp(open, 0, 1));
         if (minecraft.options.getMenuBackgroundBlurriness() != wanted)
             minecraft.options.menuBackgroundBlurriness().set(wanted);
     }
     @Override public void renderBackground(GuiGraphics g, int mouseX, int mouseY, float tickDelta) {
         updateBlur();
-        if (theme.blur.get() >= 1) blur.capture(minecraft);
-        else blur.close();
+        if (minecraft.options.getMenuBackgroundBlurriness() >= 1 && ThemeSurfaces.glass() > .001f) blur.capture(minecraft);
         g.fill(0, 0, width, height, fade(0x22081018));
     }
 
     @Override public void render(GuiGraphics g, int mouseX, int mouseY, float tickDelta) {
-        long now = System.nanoTime();
-        dt = Math.min(0.1f, Math.max(0, (now - lastFrame) / 1_000_000_000f));
-        lastFrame = now;
-        open = animate(open, closing ? 0 : 1);
-        scale = animate(scale, theme.guiScale.get().floatValue());
-        transform = new GuiTransform(scale, minecraft.getWindow().getGuiScale());
-        drawnAccent = blend(drawnAccent, theme.accent.get(), response(14));
-        if (closing && open < 0.02f) { minecraft.setScreen(null); return; }
-        // Mouse events use fractional GUI coordinates; keep hover in that same space.
-        float mx = transform.local(minecraft.mouseHandler.getScaledXPos(minecraft.getWindow()));
-        float my = transform.local(minecraft.mouseHandler.getScaledYPos(minecraft.getWindow()));
+        dt = (float)AnimationClock.UI.delta();
+        style = AnimationStyle.get(theme.animation.get());
+        float mix = response(18);
+        motionFrequency += ((float)style.frequency() - motionFrequency) * mix;
+        motionDamping += ((float)style.damping() - motionDamping) * mix;
+        motionSlide += (style.slide() - motionSlide) * mix;
+        motionStagger += (style.stagger() - motionStagger) * mix;
+        double seconds = dt * theme.animationSpeed.get();
+        open = theme.animations.get() ? opening.tween(closing ? 0 : 1, seconds,
+            style.duration(), style.easing(), closing ? motionStagger * panels.size() : 0) : closing ? 0 : 1;
+        scale = motion(scaleMotion, theme.guiScale.get());
+        float zoom = motion(zoomMotion, 1 - style.zoom() * (1 - clamp(open, 0, 1)));
+        float renderedScale = scale * zoom;
+        originX = width * (1 - zoom) / 2; originY = height * (1 - zoom) / 2;
+        if (transform.scale() != renderedScale || transform.minecraftScale() != minecraft.getWindow().getGuiScale())
+            transform.update(renderedScale, minecraft.getWindow().getGuiScale());
+        drawnAccent = accentMotion.update(theme.accent.get(), seconds, UiTokens.STATE_FREQUENCY, 1);
+        if (closing && open < .001f && panelsClosed()) { minecraft.setScreen(null); return; }
+        float mx = localX(minecraft.mouseHandler.getScaledXPos(minecraft.getWindow()));
+        float my = localY(minecraft.mouseHandler.getScaledYPos(minecraft.getWindow()));
         int logicalWidth = Math.max(1, (int)(width / scale));
         int logicalHeight = Math.max(1, (int)(height / scale));
-        // Width adapts to the available GUI viewport; the scale multiplier stays exact.
         int gap = logicalWidth < 400 ? 4 : 8;
-        PanelLayout layout = PanelLayout.fit(logicalWidth, logicalHeight, theme.panelWidth.get().intValue(), panels.size(), gap);
+        int preferredWidth = theme.panelWidth.get().intValue();
+        if (cachedLayout == null || layoutWidth != logicalWidth || layoutHeight != logicalHeight || layoutPanelWidth != preferredWidth) {
+            cachedLayout = PanelLayout.fit(logicalWidth, logicalHeight, preferredWidth, panels.size(), gap);
+            layoutWidth = logicalWidth; layoutHeight = logicalHeight; layoutPanelWidth = preferredWidth;
+        }
+        PanelLayout layout = cachedLayout;
         for (Module module : modules.all()) {
             for (Setting<?> setting : module.settings()) animateSetting(setting);
             Visual v = visuals.get(module);
-            v.expansion = animate(v.expansion, v.expanded ? 1 : 0);
-            v.toggle = animate(v.toggle, module.enabled() ? 1 : 0);
+            v.expansion = motion(v.expandMotion, v.expanded ? 1 : 0);
+            v.toggle = motion(v.toggleMotion, module.enabled() ? 1 : 0);
+            int index = modules.in(module.category()).indexOf(module);
+            double order = closing ? panels.size() - 1 - module.category().ordinal() + Math.max(0, modules.in(module.category()).size() - 1 - index) * .35
+                : module.category().ordinal() + index * .35;
+            v.reveal = reveal(v.revealMotion, order);
         }
         for (Setting<?> setting : theme.settings()) animateSetting(setting);
-        appearance.expansion = animate(appearance.expansion, appearance.expanded ? 1 : 0);
+        appearance.expansion = motion(appearance.expandMotion, appearance.expanded ? 1 : 0);
+        appearance.reveal = reveal(appearance.revealMotion, Category.CLIENT.ordinal() + (closing ? 0 : modules.in(Category.CLIENT).size() * .35));
+        motion(guiBinding, bindingGui ? 1 : 0);
         java.util.Arrays.fill(rowHeights, HEADER);
         for (Panel panel : panels) if (panel.state.automatic()) {
             float wanted = panel.state.open() ? Math.min(HEADER + contentHeight(panel) + 9, layout.cellHeight()) : HEADER;
             int row = panel.category.ordinal() / layout.columns();
-            rowHeights[row] = Math.max(rowHeights[row], Math.min(layout.cellHeight(), animate(panel.height, wanted)));
+            rowHeights[row] = Math.max(rowHeights[row], Math.min(layout.cellHeight(), wanted));
         }
         for (Panel panel : panels) {
             float autoY = 4;
             for (int row = 0; row < panel.category.ordinal() / layout.columns(); row++) autoY += rowHeights[row] + gap;
+            panel.reveal = reveal(panel.revealMotion, closing ? panels.size() - 1 - panel.category.ordinal() : panel.category.ordinal());
             panel.layout(layout, autoY, contentHeight(panel), logicalWidth, logicalHeight);
         }
         Panel hovered = panelAt(mx, my);
         tooltip = null;
         g.pose().pushMatrix();
-        g.pose().scale(scale, scale);
+        g.pose().translate(originX, originY);
+        g.pose().scale(renderedScale, renderedScale);
         for (Panel panel : panels) {
             // Each panel owns a stratum, so text and controls cannot interleave with another panel.
             g.nextStratum();
+            drawOpacity = clamp(panel.reveal, 0, 1);
             renderPanel(g, panel, hovered == panel ? mx : -10000, hovered == panel ? my : -10000);
         }
+        drawOpacity = 1;
         renderTooltip(g, mx, my, logicalWidth, logicalHeight);
         g.pose().popMatrix();
     }
@@ -162,19 +200,23 @@ public final class ClickGui extends Screen {
     private void renderPanel(GuiGraphics g, Panel p, float mx, float my) {
         int x = p.drawX(), y = p.drawY(), w = p.width, h = p.drawHeight();
         int radius = theme.radius.get().intValue();
-        int fill = ((int)(theme.opacity.get() * 255) << 24) | (theme.glassTint.get() & 0xffffff);
-        if (blur.texture() != null)
-            RoundedRenderer.glass(g, x, y, w, h, radius, fade(0xffffffff), blur.texture());
-        RoundedRenderer.panel(g, x, y, w, h, radius, fade(fill), fade(0x668da9bc),
-            theme.glow.get().floatValue() * open, theme.shadow.get().floatValue() * open);
-        p.headerHover = animate(p.headerHover, inside(mx, my, x, y, w, HEADER) ? 1 : 0);
+        float glass = ThemeSurfaces.glass();
+        int fill = ThemeSurfaces.fill();
+        if (blur.texture() != null && glass > .001f)
+            RoundedRenderer.glass(g, x, y, w, h, radius, fade(((int)(255 * glass) << 24) | 0xffffff), blur.texture());
+        RoundedRenderer.panel(g, x, y, w, h, radius, fade(fill), fade(UiTokens.BORDER),
+            theme.glow.get().floatValue() * open * drawOpacity, theme.shadow.get().floatValue() * open * drawOpacity);
+        rounded(g, x + Math.max(4, radius), y + 1, w - Math.max(4, radius) * 2, 1, 0, 0x30ffffff);
+        p.headerHover = motion(p.hoverMotion, inside(mx, my, x, y, w, HEADER) ? 1 : 0);
         rounded(g, x + 3, y + 3, w - 6, HEADER - 6, Math.min(radius, 8), ((int)(12 + 14 * p.headerHover) << 24) | 0xffffff);
         int titlePadding = w < 90 ? 4 : 9;
-        if (p.category == Category.BASEFINDING && font.width(p.category.title()) > w - 8) {
+        if (p.category == Category.BASEFINDING && ClientFonts.width(p.category.title()) > w - 8) {
             draw(g, p.category.title().substring(0, 4), x + 5, y + 5, TEXT);
             draw(g, p.category.title().substring(4), x + 5, y + 17, TEXT);
         } else {
-            drawClipped(g, p.category.title(), x + titlePadding, y + 11, w - titlePadding - (w < 90 ? 3 : 22), TEXT);
+            g.enableScissor(x + titlePadding, y + 8, x + w - (w < 90 ? 3 : 22), y + 25);
+            ClientFonts.drawBold(g, p.category.title(), x + titlePadding, y + 10, fade(TEXT));
+            g.disableScissor();
         }
         if (w >= 90) draw(g, p.state.open() ? "-" : "+", x + w - 15, y + 11, MUTED);
         int top = y + HEADER + 3, bottom = y + h - Math.max(5, radius / 2);
@@ -188,11 +230,14 @@ public final class ClickGui extends Screen {
         }
         for (Module module : modules.in(p.category)) {
             Visual v = visuals.get(module);
-            renderModuleRow(g, module, v, x, cursor, w, mx, my);
+            float panelOpacity = drawOpacity;
+            drawOpacity *= clamp(v.reveal, 0, 1);
+            renderModuleRow(g, module, v, x, cursor + rowSlide(v), w, mx, my);
             cursor += ROW;
             int expanded = Math.round(moduleSettingsHeight(module) * v.expansion);
             if (expanded > 0 && cursor < bottom && cursor + expanded > top) {
                 g.enableScissor(x + 7, Math.max(top, cursor), x + w - 7, Math.min(cursor + expanded, bottom));
+                drawOpacity *= clamp(v.expansion, 0, 1);
                 int sy = cursor + 4;
                 for (Setting<?> setting : module.settings()) {
                     renderSetting(g, setting, x + 9, sy, w - 18, mx, my);
@@ -202,11 +247,14 @@ public final class ClickGui extends Screen {
                 g.disableScissor();
             }
             cursor += expanded;
+            drawOpacity = panelOpacity;
         }
         if (p.category == Category.CLIENT) {
-            appearance.hover = animate(appearance.hover, inside(mx, my, x + 7, cursor, w - 14, ROW) ? 1 : 0);
+            float panelOpacity = drawOpacity;
+            drawOpacity *= clamp(appearance.reveal, 0, 1);
+            appearance.hover = motion(appearance.hoverMotion, inside(mx, my, x + 7, cursor, w - 14, ROW) ? 1 : 0);
             rounded(g, x + 7, cursor + 2, w - 14, ROW - 4, 6, ((int)(25 + appearance.hover * 22) << 24) | 0xffffff);
-            if (font.width(APPEARANCE) <= w - 14) {
+            if (ClientFonts.width(APPEARANCE) <= w - 14) {
                 draw(g, APPEARANCE, x + 7, cursor + 12, drawnAccent);
             } else {
                 // Wrap the name on very narrow viewports without shrinking the font.
@@ -218,9 +266,11 @@ public final class ClickGui extends Screen {
             int expanded = Math.round(appearanceHeight() * appearance.expansion);
             if (expanded > 0 && cursor < bottom && cursor + expanded > top) {
                 g.enableScissor(x + 7, Math.max(top, cursor), x + w - 7, Math.min(cursor + expanded, bottom));
+                drawOpacity *= clamp(appearance.expansion, 0, 1);
                 renderAppearance(g, x + 9, cursor + 4, w - 18, mx, my);
                 g.disableScissor();
             }
+            drawOpacity = panelOpacity;
         }
         g.disableScissor();
         if (p.maxScroll() > 0) {
@@ -233,15 +283,15 @@ public final class ClickGui extends Screen {
     }
 
     private void renderModuleRow(GuiGraphics g, Module module, Visual v, int x, int y, int w, float mx, float my) {
-        v.hover = animate(v.hover, inside(mx, my, x + 7, y, w - 14, ROW) && g.containsPointInScissor((int)(mx * scale), (int)(my * scale)) ? 1 : 0);
-        rounded(g, x + 7, y + 2, w - 14, ROW - 4, 6, ((int)(24 + 24 * v.hover) << 24) | 0xffffff);
+        v.hover = motion(v.hoverMotion, inside(mx, my, x + 7, y, w - 14, ROW) && g.containsPointInScissor((int)(mx * transform.scale() + originX), (int)(my * transform.scale() + originY)) ? 1 : 0);
+        rounded(g, x + 7, y + 2, w - 14, ROW - 4, 6, blend(((int)(24 + 24 * v.hover) << 24) | 0xffffff, 0x28000000 | (drawnAccent & 0xffffff), v.toggle * .5f));
         boolean narrow = w < 125;
         drawClipped(g, module.name(), x + (narrow ? 8 : 12), y + (narrow ? 5 : 12), w - (narrow ? 16 : 65), TEXT);
         int sx = narrow ? x + 12 : x + w - 43, sy = y + (narrow ? 19 : 11);
         rounded(g, sx, sy, 24, 12, 6, blend(0xff435565, drawnAccent, v.toggle));
-        rounded(g, sx + 2 + (int)(12 * v.toggle), sy + 2, 8, 8, 4, 0xfff5ffff);
+        roundedSmooth(g, sx + 2 + 12 * v.toggle, sy + 2, 8, 8, 4, 0xfff5ffff);
         if (narrow) draw(g, v.expanded ? "-" : "+", x + w - 18, y + 20, MUTED);
-        if (inside(mx, my, x + 7, y, w - 14, ROW) && g.containsPointInScissor((int)(mx * scale), (int)(my * scale))) tooltip = module.description();
+        if (inside(mx, my, x + 7, y, w - 14, ROW) && g.containsPointInScissor((int)(mx * transform.scale() + originX), (int)(my * transform.scale() + originY))) tooltip = module.description();
     }
 
     private void renderAppearance(GuiGraphics g, int x, int y, int w, float mx, float my) {
@@ -249,7 +299,7 @@ public final class ClickGui extends Screen {
             renderSetting(g, setting, x, y, w, mx, my);
             y += settingHeight(setting);
         }
-        rounded(g, x, y + 2, w, 29, 6, 0x55557183);
+        rounded(g, x, y + 2, w, 29, 6, blend(0x55557183, drawnAccent, guiBinding.value() * .3f));
         drawClipped(g, bindingGui ? "Press a key..." : "GUI key: " + keyName(config.guiKey()), x + 7, y + 12, w - 14, TEXT);
         y += 35;
         rounded(g, x, y + 2, w, 29, 6, 0x557c5760);
@@ -257,24 +307,33 @@ public final class ClickGui extends Screen {
     }
 
     private void renderKeybind(GuiGraphics g, Module module, int x, int y, int w) {
-        rounded(g, x, y + 2, w, 28, 6, 0x55557183);
+        Visual visual = visuals.get(module);
+        float state = motion(visual.bindMotion, bindingModule == module ? 1 : 0);
+        rounded(g, x, y + 2, w, 28, 6, blend(0x55557183, drawnAccent, state * .3f));
         drawClipped(g, bindingModule == module ? "Press a key (Esc clears)" : "Key: " + keyName(module.keybind()), x + 6, y + 11, w - 12, TEXT);
     }
 
     private void animateSetting(Setting<?> setting) {
-        if (setting instanceof GroupSetting group)
-            groupExpansion.put(group, animate(groupExpansion.getOrDefault(group, group.get() ? 1f : 0f), group.get() ? 1 : 0));
-        if (setting instanceof ModeSetting || setting instanceof MultiSelectSetting || setting instanceof GradientSetting || setting instanceof BlockListSetting)
-            controlExpansion.put(setting, animate(controlExpansion.getOrDefault(setting, 0f), expandedControls.getOrDefault(setting, false) ? 1 : 0));
+        ControlVisual v = controls.get(setting);
+        if (setting instanceof GroupSetting group) motion(v.group, group.get() ? 1 : 0);
+        motion(v.expansion, v.expanded ? 1 : 0);
+        if (setting instanceof BooleanSetting bool) motion(v.toggle, bool.get() ? 1 : 0);
+        if (setting instanceof NumberSetting number) motion(v.label, number.get());
+        if (setting instanceof ModeSetting mode)
+            for (int i = 0; i < v.options.length; i++) motion(v.options[i], mode.options().get(i).equals(mode.get()) ? 1 : 0);
+        else if (setting instanceof MultiSelectSetting multi)
+            for (int i = 0; i < v.options.length; i++) motion(v.options[i], multi.get().contains(multi.options().get(i)) ? 1 : 0);
     }
 
     private void renderSetting(GuiGraphics g, Setting<?> setting, int x, int y, int w, float mx, float my) {
         int h = settingHeight(setting);
         if (h <= 0) return;
         g.enableScissor(x, y, x + w, y + h);
-        boolean hovered = inside(mx, my, x, y, w, h) && g.containsPointInScissor((int)(mx * scale), (int)(my * scale));
-        float hover = animate(hovers.getOrDefault(setting, 0f), hovered ? 1 : 0);
-        hovers.put(setting, hover);
+        var clip = g.scissorStack.peek();
+        if (clip != null && (clip.width() <= 0 || clip.height() <= 0)) { g.disableScissor(); return; }
+        boolean hovered = inside(mx, my, x, y, w, h) && g.containsPointInScissor((int)(mx * transform.scale() + originX), (int)(my * transform.scale() + originY));
+        ControlVisual visual = controls.get(setting);
+        float hover = motion(visual.hover, hovered ? 1 : 0);
         if (hovered) tooltip = setting.tooltip();
         if (hover > 0.01f) rounded(g, x, y + 1, w, h - 2, 5, ((int)(22 * hover) << 24) | 0xffffff);
         if (setting instanceof GroupSetting group) {
@@ -291,30 +350,34 @@ public final class ClickGui extends Screen {
         } else if (setting instanceof BooleanSetting bool) {
             boolean narrow = w < 110;
             drawClipped(g, setting.label(), x + 5, y + 5, w - (narrow ? 10 : 42), TEXT);
-            float state = animate(toggles.getOrDefault(setting, bool.get() ? 1f : 0f), bool.get() ? 1 : 0);
-            toggles.put(setting, state);
+            float state = visual.toggle.value();
             int sx = narrow ? x + 6 : x + w - 30, sy = y + (narrow ? 18 : 7);
             rounded(g, sx, sy, 24, 12, 6, blend(0xff435565, drawnAccent, state));
-            rounded(g, sx + 2 + (int)(12 * state), sy + 2, 8, 8, 4, 0xfff4ffff);
+            roundedSmooth(g, sx + 2 + 12 * state, sy + 2, 8, 8, 4, 0xfff4ffff);
         } else if (setting instanceof ModeSetting mode) {
             drawClipped(g, setting.label(), x + 5, y + 4, w - 24, TEXT);
-            drawClipped(g, mode.get(), x + 5, y + 19, w - 10, drawnAccent);
-            draw(g, expandedControls.getOrDefault(setting, false) ? "-" : "+", x + w - 15, y + 4, MUTED);
+            float opacity = drawOpacity;
+            for (int i = 0; i < visual.options.length; i++) {
+                drawOpacity = opacity * clamp(visual.options[i].value(), 0, 1);
+                if (drawOpacity > .001f) drawClipped(g, mode.options().get(i), x + 5, y + 19, w - 10, drawnAccent);
+            }
+            drawOpacity = opacity;
+            draw(g, controls.get(setting).expanded ? "-" : "+", x + w - 15, y + 4, MUTED);
             int sy = y + SETTING;
-            for (String option : mode.options()) {
-                option(g, option, mode.get().equals(option), x, sy, w);
+            if (visual.expansion.value() > .001f) for (String option : mode.options()) {
+                option(g, option, mode.get().equals(option), controls.get(setting).options[mode.options().indexOf(option)], x, sy, w);
                 sy += 20;
             }
         } else if (setting instanceof MultiSelectSetting multi) {
             drawClipped(g, multi.label(), x + 5, y + 4, w - 24, TEXT);
             drawClipped(g, multi.get().size() + " selected", x + 5, y + 19, w - 10, drawnAccent);
-            draw(g, expandedControls.getOrDefault(setting, false) ? "-" : "+", x + w - 15, y + 4, MUTED);
+            draw(g, controls.get(setting).expanded ? "-" : "+", x + w - 15, y + 4, MUTED);
             int sy = y + SETTING;
-            for (String option : multi.options()) { option(g, option, multi.get().contains(option), x, sy, w); sy += 20; }
+            if (visual.expansion.value() > .001f) for (String option : multi.options()) { option(g, option, multi.get().contains(option), controls.get(setting).options[multi.options().indexOf(option)], x, sy, w); sy += 20; }
         } else if (setting instanceof BlockListSetting blocks) {
             drawClipped(g, blocks.label(), x + 5, y + 4, w - 24, TEXT);
             drawClipped(g, blocks.get().size() + " blocks", x + 5, y + 19, w - 10, drawnAccent);
-            draw(g, expandedControls.getOrDefault(setting, false) ? "-" : "+", x + w - 15, y + 4, MUTED);
+            draw(g, controls.get(setting).expanded ? "-" : "+", x + w - 15, y + 4, MUTED);
             int sy = y + SETTING;
             rounded(g, x + 2, sy + 1, w - 4, 22, 4, 0x55557183);
             drawClipped(g, editingBlocks == blocks ? blockInput + "_" : "+ registry ID (Enter)", x + 5, sy + 7, w - 10, drawnAccent);
@@ -329,7 +392,7 @@ public final class ClickGui extends Screen {
             if (!blocks.get().isEmpty()) renderColor(g, blocks.get().get(selectedBlock(blocks)), "Selected block", blocks, x, sy, w);
         } else if (setting instanceof NumberSetting number) {
             String value = numberLabel(number);
-            int valueWidth = font.width(value);
+            int valueWidth = ClientFonts.width(value);
             drawClipped(g, setting.label(), x + 5, y + 5, w - valueWidth - 16, TEXT);
             draw(g, value, x + w - valueWidth - 5, y + 5, MUTED);
             slider(g, x + 6, y + 24, w - 12, (number.get() - number.min()) / (number.max() - number.min()), setting);
@@ -337,7 +400,7 @@ public final class ClickGui extends Screen {
             renderColor(g, color.get(), color.label(), setting, x, y, w);
         } else if (setting instanceof GradientSetting gradient) {
             drawClipped(g, gradient.label(), x + 5, y + 5, w - 24, TEXT);
-            draw(g, expandedControls.getOrDefault(setting, false) ? "-" : "+", x + w - 15, y + 5, MUTED);
+            draw(g, controls.get(setting).expanded ? "-" : "+", x + w - 15, y + 5, MUTED);
             int sw = Math.max(3, (w - 46) / gradient.get().size());
             int selected = selectedStop(gradient);
             for (int i = 0; i < gradient.get().size(); i++) {
@@ -348,7 +411,7 @@ public final class ClickGui extends Screen {
             RoundedRenderer.gradient(g, x + 5, y + 22, w - 10, 9, 3, gradient.get(), eased(open));
             draw(g, "+", x + w - 32, y + 43, TEXT); draw(g, "-", x + w - 16, y + 43, TEXT);
             drawClipped(g, "Stop position", x + 5, y + 65, w - 10, TEXT);
-            slider(g, x + 6, y + 84, w - 12, gradient.get().get(selected).position(), gradient);
+            slider(g, x + 6, y + 84, w - 12, gradient.get().get(selected).position(), gradient, 4);
             renderColor(g, gradient.get().get(selected).color(), "Selected stop", setting, x, y + 94, w);
         }
         g.disableScissor();
@@ -361,18 +424,22 @@ public final class ClickGui extends Screen {
         if (id == null || !blocks.get().containsKey(id)) id = blocks.get().isEmpty() ? "" : blocks.get().keySet().iterator().next();
         return id;
     }
-    private void option(GuiGraphics g, String text, boolean selected, int x, int y, int w) {
-        rounded(g, x + 2, y + 1, w - 4, 18, 4, selected ? 0x555f8b99 : 0x22557183);
-        drawClipped(g, (selected ? "+ " : "  ") + text, x + 5, y + 6, w - 10, selected ? drawnAccent : MUTED);
+    private void option(GuiGraphics g, String text, boolean selected, Animation animation, int x, int y, int w) {
+        float state = animation.value();
+        rounded(g, x + 2, y + 1, w - 4, 18, 4, blend(0x22557183, 0x555f8b99, state));
+        drawClipped(g, (selected ? "+ " : "  ") + text, x + 5, y + 6, w - 10, blend(MUTED, drawnAccent, state));
     }
     private void renderColor(GuiGraphics g, int color, String label, Setting<?> setting, int x, int y, int w) {
+        ControlVisual visual = controls.get(setting);
+
+        color = visual.colorMotion.update(color, dt * theme.animationSpeed.get(), UiTokens.STATE_FREQUENCY, 1);
         drawClipped(g, label, x + 5, y + 6, w - 31, TEXT);
         Color.RGBtoHSB((color >> 16) & 255, (color >> 8) & 255, color & 255, hsb);
         rounded(g, x + w - 23, y + 4, 18, 15, 4, 0xff63717d);
         rounded(g, x + w - 23, y + 4, 18, 15, 4, color);
         for (int channel = 0; channel < 4; channel++) {
             draw(g, channel == 0 ? "H" : channel == 1 ? "S" : channel == 2 ? "B" : "A", x + 5, y + 28 + channel * 18, MUTED);
-            slider(g, x + 17, y + 32 + channel * 18, w - 23, channel < 3 ? hsb[channel] : (color >>> 24) / 255.0, setting);
+            slider(g, x + 17, y + 32 + channel * 18, w - 23, channel < 3 ? hsb[channel] : (color >>> 24) / 255.0, setting, channel);
         }
         int swatchWidth = Math.max(5, (w - 18) / 4);
         for (int i = 0; i < PRESETS.length; i++)
@@ -380,19 +447,21 @@ public final class ClickGui extends Screen {
     }
 
     private void slider(GuiGraphics g, int x, int y, int w, double fraction, Setting<?> key) {
+        slider(g, x, y, w, fraction, key, 0);
+    }
+    private void slider(GuiGraphics g, int x, int y, int w, double fraction, Setting<?> key, int channel) {
         if (w < 1) return;
         rounded(g, x, y, w, 3, 1, 0x775f7382);
         float target = (float)Math.max(0, Math.min(1, fraction));
-        float value = (key instanceof ColorSetting || key instanceof GradientSetting || key instanceof BlockListSetting) ? target : animate(fills.getOrDefault(key, target), target);
-        fills.put(key, value);
-        rounded(g, x, y, Math.max(1, (int)(w * value)), 3, 1, drawnAccent);
-        rounded(g, x + (int)(w * value) - 3, y - 2, 6, 7, 3, 0xffe9fbff);
+        float value = motion(controls.get(key).fills[channel], target);
+        roundedSmooth(g, x, y, Math.max(1, w * value), 3, 1, drawnAccent);
+        roundedSmooth(g, x + w * value - 3, y - 2, 6, 7, 3, 0xffe9fbff);
     }
 
     @Override public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         if (closing) return true;
         editingBlocks = null;
-        float mx = transform.local(event.x()), my = transform.local(event.y());
+        float mx = localX(event.x()), my = localY(event.y());
         Panel p = panelAt(mx, my);
         if (p == null) return false;
         panels.remove(p); panels.add(p);
@@ -465,15 +534,15 @@ public final class ClickGui extends Screen {
         else if (setting instanceof BooleanSetting bool) bool.toggle();
         else if (setting instanceof ModeSetting mode) {
             int row = (int)(my - y - SETTING) / 20;
-            if (my < y + SETTING) expandedControls.put(setting, !expandedControls.getOrDefault(setting, false));
-            else if (row >= 0 && row < mode.options().size()) { mode.set(mode.options().get(row)); expandedControls.put(setting, false); }
+            if (my < y + SETTING) controls.get(setting).expanded = !controls.get(setting).expanded;
+            else if (row >= 0 && row < mode.options().size()) { mode.set(mode.options().get(row)); controls.get(setting).expanded = false; }
         } else if (setting instanceof MultiSelectSetting multi) {
             int row = (int)(my - y - SETTING) / 20;
-            if (my < y + SETTING) expandedControls.put(setting, !expandedControls.getOrDefault(setting, false));
+            if (my < y + SETTING) controls.get(setting).expanded = !controls.get(setting).expanded;
             else if (row >= 0 && row < multi.options().size()) multi.toggle(multi.options().get(row));
         } else if (setting instanceof BlockListSetting blocks) {
             float local = my - y;
-            if (local < SETTING) { expandedControls.put(setting, !expandedControls.getOrDefault(setting, false)); editingBlocks = null; }
+            if (local < SETTING) { controls.get(setting).expanded = !controls.get(setting).expanded; editingBlocks = null; }
             else if (local < SETTING + 26) { editingBlocks = blocks; blockInput = ""; bindingModule = null; bindingGui = false; }
             else {
                 int row = (int)(local - SETTING - 26) / 20;
@@ -485,25 +554,25 @@ public final class ClickGui extends Screen {
             }
         } else if (setting instanceof NumberSetting number) {
             activeSetting = setting; activePanel = p;
-            activeTrack = transform.track(x + 6, w - 12);
-            updateNumber(number, mx * scale);
+            activeTrack = track(x + 6, w - 12);
+            updateNumber(number, mx * transform.scale() + originX);
         } else if (setting instanceof ColorSetting) {
             colorClick(p, setting, x, y, w, mx, my);
         } else if (setting instanceof GradientSetting gradient) {
             float localY = my - y;
-            if (localY < 34) expandedControls.put(setting, !expandedControls.getOrDefault(setting, false));
+            if (localY < 34) controls.get(setting).expanded = !controls.get(setting).expanded;
             else if (localY < 60) {
                 if (mx >= x + w - 36) {
                     if (mx < x + w - 20) gradient.insert(); else gradient.remove(selectedStop(gradient));
                 } else {
                     int sw = Math.max(3, (w - 46) / gradient.get().size());
                     gradientSelection.put(gradient, Math.max(0, Math.min(gradient.get().size() - 1, (int)(mx - x - 5) / sw)));
-                    expandedControls.put(setting, true);
+                    controls.get(setting).expanded = true;
                 }
             } else if (localY < 94) {
                 activeSetting = setting; activePanel = p; gradientPosition = true;
-                activeTrack = transform.track(x + 6, w - 12);
-                updateGradientPosition(gradient, mx * scale);
+                activeTrack = track(x + 6, w - 12);
+                updateGradientPosition(gradient, mx * transform.scale() + originX);
             } else colorClick(p, setting, x, y + 94, w, mx, my);
         }
     }
@@ -515,9 +584,9 @@ public final class ClickGui extends Screen {
             if (mx >= x + 5 && index >= 0 && index < PRESETS.length) setColor(setting, PRESETS[index]);
         } else if (localY >= 25 && localY < 98) {
             activeSetting = setting; activePanel = p; gradientPosition = false;
-            activeTrack = transform.track(x + 17, w - 23);
+            activeTrack = track(x + 17, w - 23);
             activeColorChannel = Math.max(0, Math.min(3, (int)(localY - 25) / 18));
-            updateColor(setting, mx * scale);
+            updateColor(setting, mx * transform.scale() + originX);
         }
     }
     private void setColor(Setting<?> setting, int value) {
@@ -530,7 +599,7 @@ public final class ClickGui extends Screen {
     }
 
     @Override public boolean mouseDragged(MouseButtonEvent event, double dx, double dy) {
-        float mx = transform.local(event.x()), my = transform.local(event.y());
+        float mx = localX(event.x()), my = localY(event.y());
         if (draggedPanel != null) {
             draggedPanel.drag(mx - dragOffsetX, my - dragOffsetY);
             return true;
@@ -556,7 +625,7 @@ public final class ClickGui extends Screen {
         return true;
     }
     @Override public boolean mouseScrolled(double x, double y, double horizontal, double vertical) {
-        Panel p = panelAt(transform.local(x), transform.local(y));
+        Panel p = panelAt(localX(x), localY(y));
         if (p == null || !p.state.open()) return false;
         p.scrollTarget = clamp(p.scrollTarget - (float)vertical * 28, 0, p.maxScroll());
         return true;
@@ -584,7 +653,10 @@ public final class ClickGui extends Screen {
             if (event.key() != GLFW.GLFW_KEY_ESCAPE) config.guiKey(event.key());
             bindingGui = false; return true;
         }
-        if (event.key() == config.guiKey() && event.key() != GLFW.GLFW_KEY_ESCAPE) { onClose(); return true; }
+        if (event.key() == config.guiKey() && event.key() != GLFW.GLFW_KEY_ESCAPE) {
+            if (closing) closing = false; else onClose();
+            return true;
+        }
         return super.keyPressed(event);
     }
     @Override public boolean charTyped(CharacterEvent event) {
@@ -628,32 +700,44 @@ public final class ClickGui extends Screen {
     }
     private int settingHeight(Setting<?> setting) {
         int height = SETTING;
-        float expansion = controlExpansion.getOrDefault(setting, 0f);
+        float expansion = clamp(controls.get(setting).expansion.value(), 0, 1);
         if (setting instanceof ColorSetting) height = COLOR;
         else if (setting instanceof BlockListSetting blocks) height += Math.round((26 + blocks.get().size() * 20 + (blocks.get().isEmpty() ? 0 : COLOR)) * expansion);
         else if (setting instanceof GradientSetting) height = 60 + Math.round((34 + COLOR) * expansion);
         else if (setting instanceof ModeSetting mode) height += Math.round(mode.options().size() * 20 * expansion);
         else if (setting instanceof MultiSelectSetting multi) height += Math.round(multi.options().size() * 20 * expansion);
-        if (setting.group() != null) height = Math.round(height * groupExpansion.getOrDefault(setting.group(), setting.group().get() ? 1f : 0f));
+        if (setting.group() != null) height = Math.round(height * clamp(controls.get(setting.group()).group.value(), 0, 1));
         return height;
     }
     private String numberLabel(NumberSetting number) {
-        Double current = number.get();
-        if (!current.equals(labelValues.get(number))) {
-            labelValues.put(number, current);
-            labels.put(number, number.step() >= 1 ? Integer.toString(current.intValue())
-                : Double.toString(Math.round(current * 100) / 100.0));
+        ControlVisual visual = controls.get(number);
+        double animated = visual.label.value();
+        double current = number.step() >= 1 ? Math.round(animated) : Math.round(animated * 100) / 100.0;
+        if (visual.labelText == null || current != visual.displayedLabel) {
+            visual.displayedLabel = current;
+            visual.labelText = number.step() >= 1 ? Long.toString(Math.round(current)) : Double.toString(current);
         }
-        return labels.get(number);
+        return visual.labelText;
     }
     private float response(float rate) {
         return theme.animations.get() ? 1 - (float)Math.exp(-rate * theme.animationSpeed.get() * dt) : 1;
     }
-    private float animate(float current, float target) {
-        float rate = theme.easing.get().equals("Snappy") ? 22 : theme.easing.get().equals("Bouncy") ? 10 : 14;
-        float next = current + (target - current) * response(rate);
-        return Math.abs(target - next) < 0.001f ? target : next;
+    private float motion(Animation animation, double target) {
+        if (!theme.animations.get()) { animation.snap(target); return animation.value(); }
+        return animation.spring(target, dt * theme.animationSpeed.get(), motionFrequency, motionDamping);
     }
+    private float reveal(Animation animation, double index) {
+        if (!theme.animations.get()) { animation.snap(closing ? 0 : 1); return animation.value(); }
+        return animation.tween(closing ? 0 : 1, dt * theme.animationSpeed.get(), style.duration(), style.easing(), index * motionStagger);
+    }
+    private boolean panelsClosed() {
+        for (Panel panel : panels) if (panel.reveal > .001f) return false;
+        return true;
+    }
+    private int rowSlide(Visual visual) { return Math.round(motionSlide * (1 - visual.reveal) * (motionStagger > .001f ? 1 : 0)); }
+    private float localX(double x) { return transform.local(x - originX); }
+    private float localY(double y) { return transform.local(y - originY); }
+    private GuiTransform.Track track(float x, float width) { return new GuiTransform.Track(x * transform.scale() + originX, width * transform.scale()); }
     private static float eased(float x) { return x * x * (3 - 2 * x); }
     private static float clamp(float value, float min, float max) { return Math.max(min, Math.min(max, value)); }
     private static boolean inside(float x, float y, int left, int top, int width, int height) {
@@ -667,34 +751,58 @@ public final class ClickGui extends Screen {
         }
         return result;
     }
-    private int fade(int color) { return ((int)((color >>> 24) * eased(open)) << 24) | (color & 0xffffff); }
+    private int fade(int color) { return ((int)((color >>> 24) * clamp(open, 0, 1) * drawOpacity) << 24) | (color & 0xffffff); }
     private void rounded(GuiGraphics g, int x, int y, int w, int h, int radius, int color) {
         RoundedRenderer.rounded(g, x, y, w, h, radius, fade(color));
     }
+    private void roundedSmooth(GuiGraphics g, float x, float y, float w, int h, int radius, int color) {
+        int left = (int)Math.floor(x), top = (int)Math.floor(y), width = Math.max(1, (int)Math.ceil(w));
+        g.pose().pushMatrix();
+        g.pose().translate(x - left, y - top);
+        g.pose().translate(left, top);
+        g.pose().scale(w / width, 1);
+        rounded(g, 0, 0, width, h, radius, color);
+        g.pose().popMatrix();
+    }
     private void draw(GuiGraphics g, String value, int x, int y, int color) {
+        if ((fade(color) >>> 24) == 0) return;
         g.pose().pushMatrix();
         g.pose().translate(transform.snap(x) - x, transform.snap(y) - y);
-        g.drawString(font, value, x, y, fade(color), false);
+        ClientFonts.draw(g, value, x, y, fade(color));
         g.pose().popMatrix();
     }
     private void drawClipped(GuiGraphics g, String value, int x, int y, int maxWidth, int color) {
         if (maxWidth <= 0) return;
-        g.enableScissor(x, y, x + maxWidth, y + 10);
+        g.enableScissor(x, y - 3, x + maxWidth, y + 12);
         draw(g, value, x, y, color);
         g.disableScissor();
     }
     private void renderTooltip(GuiGraphics g, float mx, float my, int screenWidth, int screenHeight) {
-        if (tooltip != null && tooltip.equals(lastTooltip)) tooltipTime += dt;
-        else { lastTooltip = tooltip; tooltipTime = 0; }
-        if (tooltip == null || tooltipTime < 0.55f) return;
-        int w = Math.min(Math.min(320, screenWidth - 10), font.width(tooltip) + 16);
-        var lines = font.split(Component.literal(tooltip), Math.max(1, w - 16));
-        int h = lines.size() * 11 + 12;
+        boolean sameHover = tooltip != null && tooltip.equals(hoveredTooltip);
+        if (sameHover) tooltipTime += dt * theme.animationSpeed.get();
+        else { hoveredTooltip = tooltip; tooltipTime = 0; }
+        boolean same = tooltip != null && tooltip.equals(lastTooltip);
+        float opacity = motion(tooltipFade, same && tooltipTime >= UiTokens.TOOLTIP_DELAY ? 1 : 0);
+        if (!same && opacity < .01f && tooltip != null) {
+            lastTooltip = tooltip;
+            tooltipLines = ClientFonts.wrap(tooltip, Math.max(1, Math.min(304, screenWidth - 26)));
+            tooltipFontRevision = ClientFonts.revision();
+        }
+        if (lastTooltip != null && tooltipFontRevision != ClientFonts.revision()) {
+            tooltipLines = ClientFonts.wrap(lastTooltip, Math.max(1, Math.min(304, screenWidth - 26)));
+            tooltipFontRevision = ClientFonts.revision();
+        }
+        if (opacity < .001f || tooltipLines.length == 0) return;
+        tooltipWidth = 0;
+        for (String line : tooltipLines) tooltipWidth = Math.max(tooltipWidth, ClientFonts.width(line));
+        int w = Math.min(screenWidth - 10, tooltipWidth + 16), h = tooltipLines.length * 12 + 12;
         int x = (int)clamp(mx + 9, 5, Math.max(5, screenWidth - w - 5));
         int y = (int)clamp(my + 13, 5, Math.max(5, screenHeight - h - 5));
+        drawOpacity = opacity;
         g.nextStratum();
         rounded(g, x, y, w, h, 6, 0xf0223343);
-        for (int i = 0; i < lines.size(); i++) g.drawString(font, lines.get(i), x + 8, y + 7 + i * 11, fade(TEXT), false);
+        for (int i = 0; i < tooltipLines.length; i++) draw(g, tooltipLines[i], x + 8, y + 7 + i * 12, TEXT);
+        drawOpacity = 1;
     }
     private static String keyName(int key) {
         if (key < 0) return "None";
@@ -711,13 +819,16 @@ public final class ClickGui extends Screen {
         float x, y, targetX, targetY, scroll, scrollTarget, height = HEADER, headerHover;
         int width, content, viewportWidth, viewportHeight;
         boolean initialized;
+        float reveal;
+        final Animation revealMotion = new Animation(), hoverMotion = new Animation();
+        final Animation heightMotion = new Animation(HEADER), xMotion = new Animation(), yMotion = new Animation(), scrollMotion = new Animation();
         Panel(Category category) { this.category = category; state = config.panel(category); }
         void layout(PanelLayout layout, float autoY, int content, int screenWidth, int screenHeight) {
             int width = layout.width();
             this.width = width; this.content = content;
             viewportWidth = screenWidth; viewportHeight = screenHeight;
             float wantedHeight = state.open() ? Math.min(HEADER + content + 9, (state.automatic() ? layout.cellHeight() : screenHeight - 8)) : HEADER;
-            height = animate(height, Math.max(HEADER, wantedHeight));
+            height = motion(heightMotion, Math.max(HEADER, wantedHeight));
             // A shrinking viewport must constrain the current frame, not just the animation target.
             if (state.automatic()) height = Math.min(height, layout.cellHeight());
             if (draggedPanel != this) {
@@ -726,11 +837,13 @@ public final class ClickGui extends Screen {
             }
             targetX = clamp(targetX, 4, Math.max(4, screenWidth - width - 4));
             targetY = clamp(targetY, 4, Math.max(4, screenHeight - drawHeight() - 4));
-            if (!initialized) { x = targetX; y = targetY; initialized = true; }
-            x = clamp(state.automatic() && draggedPanel != this ? targetX : animate(x, targetX), 4, Math.max(4, screenWidth - width - 4));
-            y = clamp(state.automatic() && draggedPanel != this ? targetY : animate(y, targetY), 4, Math.max(4, screenHeight - drawHeight() - 4));
+            if (!initialized) { xMotion.snap(targetX); yMotion.snap(targetY); x = targetX; y = targetY; initialized = true; }
+            x = clamp(draggedPanel == this ? xMotion.spring(targetX, dt * theme.animationSpeed.get(), UiTokens.DRAG_FREQUENCY, 1) : motion(xMotion, targetX), 4, Math.max(4, screenWidth - width - 4));
+            y = clamp(draggedPanel == this ? yMotion.spring(targetY, dt * theme.animationSpeed.get(), UiTokens.DRAG_FREQUENCY, 1) : motion(yMotion, targetY), 4, Math.max(4, screenHeight - drawHeight() - 4));
             scrollTarget = clamp(scrollTarget, 0, maxScroll());
-            scroll = animate(scroll, scrollTarget);
+            scroll = theme.animations.get() ? scrollMotion.spring(scrollTarget, dt * theme.animationSpeed.get(), UiTokens.SCROLL_FREQUENCY, 1) : scrollTarget;
+            if (!theme.animations.get()) scrollMotion.snap(scrollTarget);
+            scroll = clamp(scroll, 0, maxScroll());
         }
         void setOpen(boolean open) {
             state = new PanelState(state.x(), state.y(), open, state.automatic());
@@ -744,7 +857,7 @@ public final class ClickGui extends Screen {
         }
         float maxScroll() { return Math.max(0, content - (drawHeight() - HEADER - 9)); }
         int drawX() { return Math.round(x); }
-        int drawY() { return Math.round(y); }
+        int drawY() { return Math.round(y + motionSlide * (1 - reveal)); }
         int drawHeight() { return Math.round(height); }
         boolean contains(float px, float py) {
             int x = drawX(), y = drawY(), h = drawHeight();
@@ -755,5 +868,35 @@ public final class ClickGui extends Screen {
             return qx * qx + qy * qy <= r * r;
         }
     }
-    private static final class Visual { boolean expanded; float expansion, toggle, hover; }
+    private static final class Visual {
+        boolean expanded;
+        float expansion, toggle, hover, reveal;
+        final Animation expandMotion = new Animation(), toggleMotion = new Animation(), hoverMotion = new Animation();
+        final Animation revealMotion = new Animation(), bindMotion = new Animation();
+    }
+    private static final class ControlVisual {
+        boolean expanded;
+        final AnimatedColor colorMotion;
+        double displayedLabel;
+        String labelText;
+        final Animation expansion = new Animation(), hover = new Animation(), toggle, group, label;
+        final Animation[] fills = {new Animation(), new Animation(), new Animation(), new Animation(), new Animation()};
+        final Animation[] options;
+        ControlVisual(Setting<?> setting) {
+            int initialColor = setting instanceof ColorSetting c ? c.get()
+                : setting instanceof GradientSetting gradient ? gradient.get().getFirst().color()
+                : setting instanceof BlockListSetting blocks && !blocks.get().isEmpty() ? blocks.get().values().iterator().next() : 0xffffffff;
+            colorMotion = new AnimatedColor(initialColor);
+            toggle = new Animation(setting instanceof BooleanSetting b && b.get() ? 1 : 0);
+            group = new Animation(setting instanceof GroupSetting g && g.get() ? 1 : 0);
+            label = new Animation(setting instanceof NumberSetting n ? n.get() : 0);
+            int count = setting instanceof ModeSetting m ? m.options().size() : setting instanceof MultiSelectSetting m ? m.options().size() : 0;
+            options = new Animation[count];
+            for (int i = 0; i < count; i++) {
+                boolean selected = setting instanceof ModeSetting mode ? mode.options().get(i).equals(mode.get())
+                    : setting instanceof MultiSelectSetting multi && multi.get().contains(multi.options().get(i));
+                options[i] = new Animation(selected ? 1 : 0);
+            }
+        }
+    }
 }
