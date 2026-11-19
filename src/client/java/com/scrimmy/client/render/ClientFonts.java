@@ -10,16 +10,12 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.FontDescription;
 import net.minecraft.network.chat.Style;
 import net.minecraft.resources.Identifier;
-import java.io.DataInputStream;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
-/** Shared FreeType/TrueType renderer. Minecraft owns lazy GPU glyph atlases and reload disposal.
- * Text runs/metrics are cached; GPOS pair adjustments are applied before atlas rendering. */
+/** Shared SDF TrueType renderer with cached fractional layouts, font fades, and Inter fallback. */
 public final class ClientFonts {
     private static final List<Family> FAMILIES = new ArrayList<>();
     private static int revision;
@@ -28,7 +24,7 @@ public final class ClientFonts {
         for (var entry : com.scrimmy.client.theme.FontCatalog.entries()) register(entry.name(), entry.resource());
     }
     private ClientFonts() {}
-    public static void register(String name, String resource) { FAMILIES.add(new Family(name, resource, FAMILIES.isEmpty())); }
+    public static void register(String name, String resource) { FAMILIES.add(new Family(name, resource, FAMILIES.size(), name.equals("Inter"))); }
     public static String[] names() { return FAMILIES.stream().map(f -> f.name).toArray(String[]::new); }
     public static Style selectedStyle() {
         for (Family family : FAMILIES) if (family.name.equals(ScrimmyClient.THEME.font.get())) return family.styles[0];
@@ -41,7 +37,9 @@ public final class ClientFonts {
             var provider = ((com.scrimmy.client.mixin.FontAccessor)Minecraft.getInstance().font).scrimmy$provider();
             widgetFont = new net.minecraft.client.gui.Font(new net.minecraft.client.gui.Font.Provider() {
                 @Override public net.minecraft.client.gui.GlyphSource glyphs(FontDescription description) {
-                    return provider.glyphs(description.equals(FontDescription.DEFAULT) ? selectedStyle().getFont() : description);
+                    FontDescription selected = description.equals(FontDescription.DEFAULT) ? selectedStyle().getFont() : description;
+                    var source = SdfFonts.source(selected);
+                    return source != null ? source : provider.glyphs(selected);
                 }
                 @Override public net.minecraft.client.gui.font.glyphs.EffectGlyph effect() { return provider.effect(); }
             });
@@ -50,6 +48,7 @@ public final class ClientFonts {
     }
     public static int revision() { return revision; }
     public static void frame() {
+        SdfFonts.frame();
         var theme = ScrimmyClient.THEME;
         double dt = AnimationClock.UI.delta() * theme.animationSpeed.get();
         for (int i = 0; i < FAMILIES.size(); i++) {
@@ -57,31 +56,27 @@ public final class ClientFonts {
             family.weight.spring(family.name.equals(theme.font.get()) ? 1 : 0, dt, UiTokens.STATE_FREQUENCY, 1);
         }
     }
-    /** Called after a resource reload on the render thread. No stale baked glyph references survive. */
-    public static void reload() {
-        for (Family family : FAMILIES) {
-            family.regular.clear(); family.bold.clear();
-            for (int weight = 0; weight < 2; weight++) {
-                Style style = family.styles[weight];
-                Component warmup = Component.literal(" !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~").setStyle(style);
-                Minecraft.getInstance().font.prepareText(warmup.getVisualOrderText(), 0, 0, 0xffffffff, false, false, 0);
-            }
-        }
+    /** Glyph generations own native textures; reload and shutdown release them on the render thread. */
+    public static void reload() { SdfFonts.reload(); atlasReady(); }
+    public static void atlasReady() {
+        for (Family family : FAMILIES) { family.regular.clear(); family.bold.clear(); }
         revision++;
     }
-    public static int width(String text) { return width(text, false); }
-    public static int widthBold(String text) { return width(text, true); }
-    private static int width(String text, boolean bold) {
+    public static void close() { SdfFonts.close(); }
+    public static int width(String text) { return (int)Math.ceil(width(text, false)); }
+    public static float widthExact(String text) { return width(text, false); }
+    public static int widthBold(String text) { return (int)Math.ceil(width(text, true)); }
+    private static float width(String text, boolean bold) {
         float width = 0;
         for (int i = 0; i < FAMILIES.size(); i++) {
             Family f = FAMILIES.get(i);
             if (f.weight.value() > UiTokens.MIN_ALPHA) width += f.layout(text, bold).width * f.weight.value();
         }
-        return (int)Math.ceil(width);
+        return width;
     }
-    public static void draw(GuiGraphics g, String text, int x, int y, int color) { draw(g, text, x, y, color, false); }
-    public static void drawBold(GuiGraphics g, String text, int x, int y, int color) { draw(g, text, x, y, color, true); }
-    private static void draw(GuiGraphics g, String text, int x, int y, int color, boolean bold) {
+    public static void draw(GuiGraphics g, String text, float x, float y, int color) { draw(g, text, x, y, color, false); }
+    public static void drawBold(GuiGraphics g, String text, float x, float y, int color) { draw(g, text, x, y, color, true); }
+    private static void draw(GuiGraphics g, String text, float x, float y, int color, boolean bold) {
         for (int i = 0; i < FAMILIES.size(); i++) {
             Family f = FAMILIES.get(i);
             int alpha = Math.round((color >>> 24) * f.weight.value());
@@ -115,25 +110,15 @@ public final class ClientFonts {
     private record Layout(Component[] runs, float[] offsets, float width) {}
     private static final class Family {
         final String name;
+        final int index;
         final Animation weight;
         final Style[] styles = new Style[2];
-        final float[][] kerning = new float[2][224 * 224];
         final Map<String, Layout> regular = new LinkedHashMap<>(), bold = new LinkedHashMap<>();
-        Family(String name, String resource, boolean first) {
-            this.name = name; weight = new Animation(first ? 1 : 0);
+        Family(String name, String resource, int index, boolean selected) {
+            this.name = name; this.index = index; weight = new Animation(selected ? 1 : 0);
             for (int i = 0; i < 2; i++) {
                 String variant = i == 0 ? "regular" : "semibold";
                 styles[i] = Style.EMPTY.withFont(new FontDescription.Resource(Identifier.fromNamespaceAndPath("scrimmyclient", resource + "_" + variant)));
-                String path = "/assets/scrimmyclient/font/" + resource.toLowerCase(Locale.ROOT) + "/" + variant + ".kern";
-                try (var raw = ClientFonts.class.getResourceAsStream(path)) {
-                    if (raw == null) throw new IOException("Missing kerning table " + path);
-                    try (var input = new DataInputStream(raw)) {
-                        while (input.available() > 0) {
-                            int a = input.readUnsignedShort(), b = input.readUnsignedShort();
-                            kerning[i][(a - 32) * 224 + b - 32] = input.readFloat();
-                        }
-                    }
-                } catch (IOException e) { throw new IllegalStateException("Could not load bundled font metrics", e); }
             }
         }
         Layout layout(String text, boolean semibold) {
@@ -141,20 +126,20 @@ public final class ClientFonts {
             Layout result = cache.get(text);
             if (result != null) return result;
             if (cache.size() >= 2048) cache.remove(cache.keySet().iterator().next());
-            int index = semibold ? 1 : 0, start = 0;
+            int weight = semibold ? 1 : 0, start = 0;
             float pen = 0;
             List<Component> runs = new ArrayList<>();
             List<Float> offsets = new ArrayList<>();
-            for (int i = 1; i < text.length(); i++) {
-                int a = text.charAt(i - 1), b = text.charAt(i);
-                float kern = a >= 32 && a < 256 && b >= 32 && b < 256 ? kerning[index][(a - 32) * 224 + b - 32] : 0;
+            for (int i = text.isEmpty() ? 0 : Character.charCount(text.codePointAt(0)); i < text.length(); i += Character.charCount(text.codePointAt(i))) {
+                int a = text.codePointBefore(i), b = text.codePointAt(i);
+                float kern = SdfFonts.kerning(index, semibold, a, b);
                 if (kern == 0) continue;
-                Component run = Component.literal(text.substring(start, i)).setStyle(styles[index]);
+                Component run = Component.literal(text.substring(start, i)).setStyle(styles[weight]);
                 runs.add(run); offsets.add(pen);
                 pen += Minecraft.getInstance().font.getSplitter().stringWidth(run) + kern;
                 start = i;
             }
-            Component run = Component.literal(text.substring(start)).setStyle(styles[index]);
+            Component run = Component.literal(text.substring(start)).setStyle(styles[weight]);
             runs.add(run); offsets.add(pen);
             pen += Minecraft.getInstance().font.getSplitter().stringWidth(run);
             float[] positions = new float[offsets.size()];

@@ -139,8 +139,8 @@ final class DrillTrailNametags {
             g.pose().pushMatrix();g.pose().translate(x,y);g.pose().scale(t.scale,t.scale);
             t.panel.draw(g,width,30,Math.min(15,ScrimmyClient.THEME.radius.get().intValue()+4),
                     alpha(background,t.opacity),alpha(accent,t.opacity*.25),alpha(0x40000000,t.opacity),screen,blur.texture());
-            ClientFonts.draw(g,t.label,-t.labelWidth/2,4,alpha(0xffc4d3e3,t.opacity));
-            ClientFonts.draw(g,t.text,-t.textWidth/2,17,alpha(lengthTint,t.opacity));
+            ClientFonts.draw(g, t.label, -ClientFonts.widthExact(t.label) / 2f,4,alpha(0xffc4d3e3,t.opacity));
+            ClientFonts.draw(g, t.text, -ClientFonts.widthExact(t.text) / 2f,17,alpha(lengthTint,t.opacity));
             g.pose().popMatrix();
         }
     }

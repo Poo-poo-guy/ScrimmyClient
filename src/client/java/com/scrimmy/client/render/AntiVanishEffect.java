@@ -79,7 +79,7 @@ public final class AntiVanishEffect {
         try {
             g.pose().translate(g.guiWidth() / 2f, g.guiHeight() / 2f);
             g.pose().scale(scale, scale);
-            ClientFonts.draw(g, text, -width / 2, -font.lineHeight / 2, (alpha << 24) | color);
+            ClientFonts.draw(g, text, -width / 2f, -font.lineHeight / 2f, (alpha << 24) | color);
         } finally { g.pose().popMatrix(); }
     }
     static double opacity(double age, double start, double fadeIn, double hold, double fadeOut) {
