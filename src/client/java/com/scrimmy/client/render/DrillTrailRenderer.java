@@ -249,7 +249,7 @@ public final class DrillTrailRenderer implements AutoCloseable {
         g.pose().translate(0, 7);
         float textScale = Math.min(1, (width - 22f) / Math.max(1, hintWidth - 22f));
         g.pose().scale(textScale, textScale);
-        ClientFonts.draw(g, hint, -hintWidth / 2 + 11, 0, alpha(0xffeaf3ff, hintAlpha));
+        ClientFonts.draw(g, hint, -hintWidth / 2f + 11, 0, alpha(0xffeaf3ff, hintAlpha));
         g.pose().popMatrix();
     }
     private static int alpha(int color, double factor) { return (int)Math.min(255, (color >>> 24) * Math.max(0, factor)) << 24 | (color & 0xffffff); }

@@ -190,7 +190,10 @@ public final class ClickGui extends Screen {
             // Each panel owns a stratum, so text and controls cannot interleave with another panel.
             g.nextStratum();
             drawOpacity = clamp(panel.reveal, 0, 1);
+            g.pose().pushMatrix();
+            g.pose().translate(panel.x - panel.drawX(), panel.y + motionSlide * (1 - panel.reveal) - panel.drawY());
             renderPanel(g, panel, hovered == panel ? mx : -10000, hovered == panel ? my : -10000);
+            g.pose().popMatrix();
         }
         drawOpacity = 1;
         renderTooltip(g, mx, my, logicalWidth, logicalHeight);
@@ -224,6 +227,8 @@ public final class ClickGui extends Screen {
         rounded(g, x + 8, y + HEADER - 1, w - 16, 1, 0, 0x33ffffff);
         // The scissor stays inside the rounded corners; no content crosses their mask.
         g.enableScissor(x + 5, top, x + w - 5, bottom);
+        g.pose().pushMatrix();
+        g.pose().translate(0, top - p.scroll - Math.round(top - p.scroll));
         int cursor = Math.round(top - p.scroll);
         if (modules.in(p.category).isEmpty() && p.category != Category.CLIENT) {
             drawClipped(g, "No modules yet", x + 10, cursor + 10, w - 20, MUTED);
@@ -272,6 +277,7 @@ public final class ClickGui extends Screen {
             }
             drawOpacity = panelOpacity;
         }
+        g.pose().popMatrix();
         g.disableScissor();
         if (p.maxScroll() > 0) {
             int trackHeight = bottom - top;
@@ -766,10 +772,7 @@ public final class ClickGui extends Screen {
     }
     private void draw(GuiGraphics g, String value, int x, int y, int color) {
         if ((fade(color) >>> 24) == 0) return;
-        g.pose().pushMatrix();
-        g.pose().translate(transform.snap(x) - x, transform.snap(y) - y);
         ClientFonts.draw(g, value, x, y, fade(color));
-        g.pose().popMatrix();
     }
     private void drawClipped(GuiGraphics g, String value, int x, int y, int maxWidth, int color) {
         if (maxWidth <= 0) return;

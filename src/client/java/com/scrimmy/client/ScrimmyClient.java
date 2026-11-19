@@ -30,7 +30,10 @@ public final class ScrimmyClient implements ClientModInitializer {
             com.scrimmy.client.render.ClientFonts.reload();
         });
         resources.addReloaderOrdering(net.fabricmc.fabric.api.resource.v1.reloader.ResourceReloaderKeys.Client.FONTS, uiReload);
-        net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents.CLIENT_STOPPING.register(client -> com.scrimmy.client.render.PanelBlur.release());
+        net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
+            com.scrimmy.client.render.PanelBlur.release();
+            com.scrimmy.client.render.ClientFonts.close();
+        });
         MODULES.all().forEach(Module::initialize);
         ClientTickEvents.END_CLIENT_TICK.register(this::tick);
     }

@@ -221,9 +221,9 @@ public final class ChunkFinderRenderer implements AutoCloseable {
                     alpha(accent, v.labelAlpha * (v.primary ? .6 : .25)),
                     alpha(v.primary ? (accent & 0xffffff) | 0x44000000 : 0x40000000, v.labelAlpha),
                     screen, blur.texture());
-            ClientFonts.draw(g, v.label, -v.labelWidth / 2, 4,
+            ClientFonts.draw(g, v.label, -ClientFonts.widthExact(v.label) / 2f, 4,
                     alpha(0xffc4d3e3, v.labelAlpha));
-            ClientFonts.draw(g, v.text, -v.textWidth / 2, 17, alpha(scoreColor, v.labelAlpha));
+            ClientFonts.draw(g, v.text, -ClientFonts.widthExact(v.text) / 2f, 17, alpha(scoreColor, v.labelAlpha));
             g.pose().popMatrix();
         }
     }
@@ -239,8 +239,8 @@ public final class ChunkFinderRenderer implements AutoCloseable {
         g.pose().pushMatrix(); g.pose().translate(x, 12);
         toastPanel.draw(g, width, 34, 8, alpha(0xe0152231, opacity),
                 alpha(ScrimmyClient.THEME.accent.get(), opacity * .5), alpha(0x40000000, opacity), screen);
-        ClientFonts.draw(g, "ChunkFinder", -width / 2 + 10, 5, alpha(ScrimmyClient.THEME.accent.get(), opacity));
-        ClientFonts.draw(g, toastText, -width / 2 + 10, 20, alpha(0xffedf6ff, opacity));
+        ClientFonts.draw(g, "ChunkFinder", -width / 2f + 10, 5, alpha(ScrimmyClient.THEME.accent.get(), opacity));
+        ClientFonts.draw(g, toastText, -width / 2f + 10, 20, alpha(0xffedf6ff, opacity));
         g.pose().popMatrix();
     }
 

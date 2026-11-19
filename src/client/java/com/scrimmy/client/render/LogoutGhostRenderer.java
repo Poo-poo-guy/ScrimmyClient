@@ -222,10 +222,10 @@ public final class LogoutGhostRenderer implements AutoCloseable {
             v.panel.draw(g, v.width + LABEL_PADDING * 2, v.height, PANEL_RADIUS,
                 alpha(PANEL_COLOR, v.opacity), alpha((PANEL_BORDER_ALPHA << 24) | (v.color & 0xffffff), v.opacity), alpha(PANEL_SHADOW, v.opacity), viewport);
             int textColor = (Math.min(255, (int)(255 * v.opacity)) << 24) | (v.color & 0xffffff);
-            ClientFonts.draw(g, v.name, -v.nameWidth / 2, LABEL_PADDING, textColor);
-            ClientFonts.draw(g, v.status, -v.statusWidth / 2, LABEL_PADDING + LABEL_LINE_HEIGHT, textColor);
-            ClientFonts.draw(g, v.detail, -v.detailWidth / 2, LABEL_PADDING + LABEL_LINE_HEIGHT * 2, textColor);
-            if (v.coordinates) ClientFonts.draw(g, v.position, -v.positionWidth / 2, LABEL_PADDING + LABEL_LINE_HEIGHT * 3, textColor);
+            ClientFonts.draw(g, v.name, -ClientFonts.widthExact(v.name) / 2f, LABEL_PADDING, textColor);
+            ClientFonts.draw(g, v.status, -ClientFonts.widthExact(v.status) / 2f, LABEL_PADDING + LABEL_LINE_HEIGHT, textColor);
+            ClientFonts.draw(g, v.detail, -ClientFonts.widthExact(v.detail) / 2f, LABEL_PADDING + LABEL_LINE_HEIGHT * 2, textColor);
+            if (v.coordinates) ClientFonts.draw(g, v.position, -ClientFonts.widthExact(v.position) / 2f, LABEL_PADDING + LABEL_LINE_HEIGHT * 3, textColor);
             g.pose().popMatrix();
         }
     }
