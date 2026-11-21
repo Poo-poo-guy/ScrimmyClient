@@ -62,9 +62,9 @@ public final class ConfigStore {
             JsonObject root = JsonParser.parseString(Files.readString(path)).getAsJsonObject();
             JsonObject profiles = object(root, "profiles");
             JsonObject profile = object(profiles, "default");
-            JsonObject themeJson = ModuleSettings.appearance(object(profile, "theme"));
-            for (Setting<?> setting : theme.settings()) readSetting(themeJson, setting);
             JsonObject moduleJson = object(profile, "modules");
+            JsonObject themeJson = ModuleSettings.appearance(object(profile, "theme"), moduleJson);
+            for (Setting<?> setting : theme.settings()) readSetting(themeJson, setting);
             for (Module module : modules.all()) {
                 module.beginRestore();
                 JsonObject entry = ModuleSettings.entry(moduleJson, module.name());

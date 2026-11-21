@@ -74,4 +74,38 @@ class ToastQueueTest {
         assertDoesNotThrow(() -> queue.show(new Object(), "Another", true, .2, 1));
         assertEquals(2, queue.size());
     }
+    @Test void visibleStyleIsRetainedWhileNewAndQueuedToastsUseTheSelectedStyle() {
+        ToastQueue queue = new ToastQueue(); Object first = new Object();
+        queue.show(first, "Card", true, 0, 5, ToastStyle.CARD);
+        advance(queue, 0, .5);
+        var card = queue.get(0); float reveal = card.reveal.value();
+        queue.show(first, "Card", false, .5, 5, ToastStyle.PILL);
+        assertSame(card, queue.get(0)); assertEquals(ToastStyle.CARD, card.style());
+        assertEquals(reveal, card.reveal.value());
+        queue.show(new Object(), "Pill", true, .5, 5, ToastStyle.PILL);
+        advance(queue, .5, 1.5);
+        assertEquals(ToastStyle.PILL, queue.get(0).style());
+        assertEquals(34, card.offset.value(), .1); // New pill height 26 + the shared gap 8.
+        queue.show(new Object(), "Third", true, 1.5, 5, ToastStyle.CARD);
+        queue.show(new Object(), "Fourth", true, 1.5, 5, ToastStyle.PILL);
+        Object waiting = new Object(); queue.show(waiting, "Waiting", true, 1.5, 5, ToastStyle.CARD);
+        queue.show(waiting, "Waiting", false, 1.51, 5, ToastStyle.PILL);
+        advance(queue, 1.51, 2.5);
+        assertEquals(4, queue.size()); assertEquals(0, queue.waiting());
+        assertEquals(ToastStyle.PILL, queue.get(0).style()); assertFalse(queue.get(0).enabled());
+    }
+    @Test void pillNameAndStateUpdatesKeepTheSameSlotAndEaseFromTheCurrentState() {
+        ToastQueue queue = new ToastQueue(); Object module = new Object();
+        queue.show(module, "Short", true, 0, 1, ToastStyle.PILL);
+        advance(queue, 0, .5); var pill = queue.get(0); long generation = pill.generation();
+        queue.show(module, "A much longer module name", false, .5, 1, ToastStyle.PILL);
+        assertSame(pill, queue.get(0)); assertEquals(generation, pill.generation());
+        assertEquals("A much longer module name", pill.name()); assertEquals(1, pill.state.value());
+        queue.update(.51, .01, true, 1, STYLE);
+        assertTrue(pill.state.value() > 0 && pill.state.value() < 1);
+        float midSwitch = pill.state.value();
+        queue.show(module, pill.name(), true, .51, 1, ToastStyle.PILL);
+        assertEquals(midSwitch, pill.state.value()); assertEquals(1, queue.size());
+    }
+
 }
