@@ -21,7 +21,6 @@ public final class NotificationAudio implements NotificationSound {
     private NotificationAudio() {}
     public static void initialize() {
         if (initialized) return;
-        ClientNotificationSounds.register();
         NotificationCenter.sound(INSTANCE);
         ClientTickEvents.START_CLIENT_TICK.register(client -> {
             INSTANCE.limiter.beginTick();
@@ -50,8 +49,8 @@ public final class NotificationAudio implements NotificationSound {
         Minecraft client = Minecraft.getInstance();
         if (client.options.getSoundSourceVolume(SoundSource.MASTER) <= 0 || client.options.getSoundSourceVolume(SoundSource.UI) <= 0) return;
         var event = enabled ? ClientNotificationSounds.ON : ClientNotificationSounds.OFF;
-        var registered = client.getSoundManager().getSoundEvent(event.location());
-        if (registered == null || registered.getWeight() == 0 || !limiter.claim(true)) return;
+        var definition = client.getSoundManager().getSoundEvent(event.location());
+        if (definition == null || definition.getWeight() == 0 || !limiter.claim(true)) return;
         float sample = settings.pitchVariation.get() ? random.nextFloat() : .5f;
         float pitch = NotificationSoundLimiter.pitch(enabled, settings.pitchVariation.get(), sample);
         // forUI uses SoundSource.UI, listener-relative coordinates and Attenuation.NONE in 1.21.11.
