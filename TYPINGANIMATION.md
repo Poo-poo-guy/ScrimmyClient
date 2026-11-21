@@ -39,8 +39,9 @@ Rapid typing reduces duration to keep old characters settled, with an absolute
 Styled glyph sequences retain the draw call's font, formatting, ARGB color, shadow,
 and visible-text origin. Glyph positions use font advances and vanilla scrolling
 and line offsets. This preserves resource-pack fonts and custom style fonts,
-including Xuong when supplied by the active font configuration. This checkout
-contains no separate Xuong renderer or font assets.
+including Xuong when supplied by the active font configuration. The bundled Xuong/SDF renderer from the current main branch is preserved; fields
+that supply its font styles retain those styles during animation. Cached positions
+reset when the selected client face or SDF atlas revision changes.
 
 Glyphs, timestamps, and removal records are cached; the animator creates no strings
 or lists in its per-frame loops. Buffer replacements occur on text edits. Settled
@@ -65,7 +66,7 @@ rendering. Arbitrary third-party custom renderers have not been tested.
 suffix timestamp retention, paste grouping, deletion, fast typing, and emoji
 replacement boundaries. Runtime smoke testing uses the actual Fabric client and
 Minecraft font/GUI renderer under a virtual display; temporary smoke tooling is
-kept outside the shipped mod. All 104 tests passed. The runtime smoke passed
+kept outside the shipped mod. All 115 tests passed after integrating the current main branch. The runtime smoke passed
 for single-line and multiline fields, standing/hanging signs, all styles, scrolling,
 formatting, masked fallback, multi-line selections, runtime toggling, and deletion
 opacity/position/expiry (including 200 removed glyphs).

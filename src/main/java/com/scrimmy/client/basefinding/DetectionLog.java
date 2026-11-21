@@ -10,7 +10,7 @@ import java.security.MessageDigest;
 import java.util.*;
 import java.util.concurrent.*;
 
-/** Shared Basefinding log format. File work is serialized off the client thread. */
+/** Shared ChunkFinder log format. File work is serialized off the client thread. */
 public final class DetectionLog implements AutoCloseable {
     public static final int LIMIT = 10000;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
@@ -61,7 +61,7 @@ public final class DetectionLog implements AutoCloseable {
     private final ScheduledExecutorService io =
             Executors.newSingleThreadScheduledExecutor(
                     r -> {
-                        Thread t = new Thread(r, "Scrimmy Basefinding log");
+                        Thread t = new Thread(r, "Scrimmy ChunkFinder log");
                         t.setDaemon(true);
                         return t;
                     });
@@ -149,13 +149,13 @@ public final class DetectionLog implements AutoCloseable {
                     if (result.size() == LIMIT) break;
                 } catch (RuntimeException e) {
                     LoggerFactory.getLogger("ScrimmyClient")
-                            .warn("Skipping invalid Basefinding entry in {}", path);
+                            .warn("Skipping invalid ChunkFinder entry in {}", path);
                 }
             }
             return List.copyOf(result);
         } catch (Exception e) {
             LoggerFactory.getLogger("ScrimmyClient")
-                    .error("Could not read Basefinding log {}", path, e);
+                    .error("Could not read ChunkFinder log {}", path, e);
             // Preserve the corrupt original before a later valid save replaces it.
             try {
                 Files.copy(
@@ -201,7 +201,7 @@ public final class DetectionLog implements AutoCloseable {
             }
         } catch (Exception e) {
             LoggerFactory.getLogger("ScrimmyClient")
-                    .error("Could not save Basefinding log {}", path, e);
+                    .error("Could not save ChunkFinder log {}", path, e);
             throw new CompletionException(e);
         } finally {
             if (temp != null)
@@ -218,7 +218,7 @@ public final class DetectionLog implements AutoCloseable {
         io.shutdown();
         try {
             if (!io.awaitTermination(5, TimeUnit.SECONDS))
-                LoggerFactory.getLogger("ScrimmyClient").warn("Basefinding log is still flushing");
+                LoggerFactory.getLogger("ScrimmyClient").warn("ChunkFinder log is still flushing");
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }

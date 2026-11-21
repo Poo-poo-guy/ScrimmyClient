@@ -1,6 +1,8 @@
 package com.scrimmy.client.typing;
 
 import com.scrimmy.client.module.visual.TypingAnimation;
+import com.scrimmy.client.ScrimmyClient;
+import com.scrimmy.client.render.ClientFonts;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -20,6 +22,8 @@ import java.util.WeakHashMap;
 public final class TextAnimator {
     private static final WeakHashMap<Object, State[]> FIELDS = new WeakHashMap<>();
     private static final State[] MASKED_FIELD = new State[0];
+    private static int fontRevision = -1;
+    private static String selectedFont;
     private static final long GHOST_NS = 85_000_000L;
     private TextAnimator() {}
 
@@ -32,6 +36,12 @@ public final class TextAnimator {
         boolean active = module != null && module.enabled()
                 && (sign || book ? module.signsAndBooks.get() : screen instanceof ChatScreen ? module.chat.get() : module.otherFields.get());
         if (!active) { FIELDS.remove(field); return null; }
+        // The client widget font keeps its identity while its selected face/atlas changes.
+        int revision = ClientFonts.revision();
+        String selected = ScrimmyClient.THEME.font.get();
+        if (revision != fontRevision || !selected.equals(selectedFont)) {
+            clear(); fontRevision = revision; selectedFont = selected;
+        }
         State[] lanes = FIELDS.get(field);
         if (lanes == MASKED_FIELD) return null;
         if (lanes == null) {

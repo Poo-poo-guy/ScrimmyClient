@@ -5,6 +5,9 @@ import com.scrimmy.client.basefinding.DetectionLog.Detection;
 import com.scrimmy.client.basefinding.GeodeScoring;
 import com.scrimmy.client.module.basefinding.Basefinding;
 import com.scrimmy.client.render.PanelBlur;
+import com.scrimmy.client.render.ClientFonts;
+import com.scrimmy.client.render.ThemeSurfaces;
+import com.scrimmy.client.animation.AnimationClock;
 import com.scrimmy.client.render.RoundedRenderer;
 
 import net.minecraft.client.gui.GuiGraphics;
@@ -26,11 +29,10 @@ public final class BasefindingLogScreen extends Screen {
     private Long selected;
     private int page, previousBlur = -1;
     private float alpha;
-    private long lastFrame = System.nanoTime();
     private boolean updatingNotes;
 
     public BasefindingLogScreen(Basefinding module, Screen parent) {
-        super(Component.literal("Basefinding detection log"));
+        super(Component.literal("ChunkFinder detection log"));
         this.module = module;
         this.parent = parent;
     }
@@ -62,7 +64,7 @@ public final class BasefindingLogScreen extends Screen {
     protected void init() {
         notes =
                 new EditBox(
-                        font,
+                        ClientFonts.widgetFont(),
                         left() + 12,
                         height - 106,
                         Math.max(40, panelWidth() - 24),
@@ -109,33 +111,26 @@ public final class BasefindingLogScreen extends Screen {
 
     @Override
     public void renderBackground(GuiGraphics g, int mouseX, int mouseY, float delta) {
-        if (ScrimmyClient.THEME.blur.get() >= 1) blur.capture(minecraft);
-        else blur.close();
+        int strength = Math.round(ScrimmyClient.THEME.blur.get().floatValue() * ThemeSurfaces.glass());
+        minecraft.options.menuBackgroundBlurriness().set(strength);
+        if (strength >= 1) blur.capture(minecraft); else blur.close();
         g.fill(0, 0, width, height, 0x44081018);
     }
 
     @Override
     public void render(GuiGraphics g, int mx, int my, float delta) {
-        long now = System.nanoTime();
-        alpha +=
-                (1 - alpha)
-                        * (float)
-                                (1
-                                        - Math.exp(
-                                                -Math.min(.1, (now - lastFrame) / 1_000_000_000.0)
-                                                        * 12));
-        lastFrame = now;
+        alpha += (1 - alpha) * (float)(1 - Math.exp(-AnimationClock.UI.delta() * 12 * ScrimmyClient.THEME.animationSpeed.get()));
         int x = left(), w = panelWidth(), accent = ScrimmyClient.THEME.accent.get();
         if (blur.texture() != null)
-            RoundedRenderer.glass(g, x, 16, w, height - 32, 10, fade(0xffffffff), blur.texture());
+            RoundedRenderer.glass(g, x, 16, w, height - 32, 10, fade(((int)(255 * ThemeSurfaces.glass()) << 24) | 0xffffff), blur.texture());
         RoundedRenderer.panel(
-                g, x, 16, w, height - 32, 10, fade(0xe01b2c3a), fade(0x668da9bc), .2f, .5f);
-        text(g, "Basefinding / ChunkFinder log", x + 12, 27, accent);
+                g, x, 16, w, height - 32, 10, fade(ThemeSurfaces.fill()), fade(0x668da9bc), .2f, .5f);
+        text(g, "ChunkFinder log", x + 12, 27, accent);
         text(
                 g,
                 module.ready()
                         ? entries.size() + " saved locations · select a row to manage it"
-                        : "Join an Overworld and enable Basefinding to load detections",
+                        : "Join an Overworld and enable ChunkFinder to load detections",
                 x + 12,
                 43,
                 0xffa9bdcc);
@@ -218,7 +213,7 @@ public final class BasefindingLogScreen extends Screen {
     }
 
     private void text(GuiGraphics g, String text, int x, int y, int color) {
-        g.drawString(font, text, x, y, fade(color), false);
+        ClientFonts.draw(g, text, x, y, fade(color));
     }
 
     private int fade(int color) {

@@ -46,7 +46,7 @@ public final class Basefinding extends Module {
     private int ticks, centerX = Integer.MIN_VALUE, centerZ;
 
     public Basefinding() {
-        super("Basefinding", "Estimate a base area from amethyst growth in loaded chunks", Category.BASEFINDING);
+        super("ChunkFinder", "Estimate a base area from amethyst growth in loaded chunks", Category.BASEFINDING);
         showGeodes.tooltip("Mark the amethyst geodes found nearby.");
         highlightChunks.tooltip("Shade chunks where a base is most likely.");
         nametags.tooltip("Show a floating base chance score above each highlighted chunk.");
@@ -181,7 +181,7 @@ public final class Basefinding extends Module {
     }
     public void message(String text) {
         var player = Minecraft.getInstance().player;
-        if (player != null) player.displayClientMessage(Component.literal("[Basefinding] " + text), false);
+        if (player != null) player.displayClientMessage(com.scrimmy.client.render.ClientFonts.component("[ChunkFinder] " + text), false);
     }
     public void error(String text, Throwable e) { LoggerFactory.getLogger("ScrimmyClient").error(text, e); }
 }

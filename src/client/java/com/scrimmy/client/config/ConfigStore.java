@@ -62,14 +62,14 @@ public final class ConfigStore {
             JsonObject root = JsonParser.parseString(Files.readString(path)).getAsJsonObject();
             JsonObject profiles = object(root, "profiles");
             JsonObject profile = object(profiles, "default");
-            JsonObject themeJson = object(profile, "theme");
+            JsonObject themeJson = ModuleSettings.appearance(object(profile, "theme"));
             for (Setting<?> setting : theme.settings()) readSetting(themeJson, setting);
             JsonObject moduleJson = object(profile, "modules");
             for (Module module : modules.all()) {
                 module.beginRestore();
-                JsonObject entry = object(moduleJson, module.name());
+                JsonObject entry = ModuleSettings.entry(moduleJson, module.name());
                 boolean enabled = ModuleSettings.bool(entry, "enabled", false);
-                if (module.name().equals("Basefinding"))
+                if (module.name().equals("ChunkFinder"))
                     enabled &= ModuleSettings.bool(object(entry, "settings"), "cfEnabled", true);
                 module.enabled(enabled);
                 if (entry.has("keybind")) module.keybind(entry.get("keybind").getAsInt());
@@ -104,6 +104,7 @@ public final class ConfigStore {
             }
             LOG.warn("Could not load Scrimmy Client config; using defaults", e);
         } finally { loading = false; }
+        changed(); // Rewrite legacy aliases under canonical keys with the normal debounce.
     }
 
     public void reset() {

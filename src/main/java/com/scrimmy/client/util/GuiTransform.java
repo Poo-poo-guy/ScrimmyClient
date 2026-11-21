@@ -1,10 +1,16 @@
 package com.scrimmy.client.util;
 
 /** Screen input is already in Minecraft GUI units; apply only our additional scale. */
-public record GuiTransform(float scale, int minecraftScale) {
-    public GuiTransform {
+public final class GuiTransform {
+    private float scale;
+    private int minecraftScale;
+    public GuiTransform(float scale, int minecraftScale) { update(scale, minecraftScale); }
+    public float scale() { return scale; }
+    public int minecraftScale() { return minecraftScale; }
+    public void update(float scale, int minecraftScale) {
         if (!Float.isFinite(scale) || scale <= 0 || minecraftScale <= 0)
             throw new IllegalArgumentException("Invalid GUI scale");
+        this.scale = scale; this.minecraftScale = minecraftScale;
     }
     public float local(double screenCoordinate) { return (float)(screenCoordinate / scale); }
     public float snap(float localCoordinate) {

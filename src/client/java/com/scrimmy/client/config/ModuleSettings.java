@@ -7,9 +7,23 @@ public final class ModuleSettings {
     private static final String[] BLOCK_GROUPS = {"Storage", "Ores", "Ancient Debris", "Spawners", "Portals", "Beds", "Respawn Anchors"};
     private ModuleSettings() {}
 
+    /** The canonical key wins if a config contains both names. */
+    public static JsonObject entry(JsonObject modules, String name) {
+        JsonElement value = modules.get(name);
+        if (value == null && name.equals("ChunkFinder")) value = modules.get("Basefinding");
+        return value != null && value.isJsonObject() ? value.getAsJsonObject() : new JsonObject();
+    }
+
+    public static JsonObject appearance(JsonObject source) {
+        JsonObject values = source.deepCopy();
+        if (!values.has("animation") && values.has("easing"))
+            values.addProperty("animation", "Bouncy".equals(string(values, "easing", "Smooth")) ? "Spring" : "Smooth");
+        return values;
+    }
+
     public static JsonObject migrate(String module, JsonObject source) {
         JsonObject values = source.deepCopy();
-        if (module.equals("Basefinding")) {
+        if ((module.equals("ChunkFinder") || module.equals("Basefinding"))) {
             if (!values.has("cfRange") && values.has("cfDistance")) {
                 try { values.addProperty("cfRange", values.get("cfDistance").getAsDouble() / 16); }
                 catch (RuntimeException ignored) { }

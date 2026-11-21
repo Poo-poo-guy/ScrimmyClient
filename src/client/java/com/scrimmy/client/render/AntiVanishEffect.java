@@ -73,13 +73,13 @@ public final class AntiVanishEffect {
         int alpha = (int)(255 * opacity);
         if (alpha < MIN_TEXT_ALPHA) return;
         var font = Minecraft.getInstance().font;
-        int width = font.width(text);
+        int width = ClientFonts.width(text);
         float scale = Math.min(requestedScale, g.guiWidth() * TEXT_WIDTH_FRACTION / Math.max(1, width));
         g.pose().pushMatrix();
         try {
             g.pose().translate(g.guiWidth() / 2f, g.guiHeight() / 2f);
             g.pose().scale(scale, scale);
-            g.drawString(font, text, -width / 2, -font.lineHeight / 2, (alpha << 24) | color, false);
+            ClientFonts.draw(g, text, -width / 2f, -font.lineHeight / 2f, (alpha << 24) | color);
         } finally { g.pose().popMatrix(); }
     }
     static double opacity(double age, double start, double fadeIn, double hold, double fadeOut) {

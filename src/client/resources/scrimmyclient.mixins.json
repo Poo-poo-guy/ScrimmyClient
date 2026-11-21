@@ -3,6 +3,9 @@
   "package": "com.scrimmy.client.mixin",
   "compatibilityLevel": "JAVA_25",
   "client": [
+    "FontAccessor",
+    "FontSourceMixin",
+    "GlyphSamplerMixin",
     "ClientPacketListenerMixin",
     "LevelChunkMixin",
     "CameraMixin",
