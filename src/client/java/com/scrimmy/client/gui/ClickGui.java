@@ -489,7 +489,7 @@ public final class ClickGui extends Screen {
         for (Module module : modules.in(p.category)) {
             Visual v = visuals.get(module);
             if (inside(mx, my, x + 7, cursor, w - 14, ROW)) {
-                if (event.button() == 0) module.toggle();
+                if (event.button() == 0) module.toggle(Module.ToggleSource.CLICK_GUI);
                 else if (event.button() == 1) v.expanded = !v.expanded;
                 return true;
             }

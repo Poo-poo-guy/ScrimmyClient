@@ -68,7 +68,7 @@ public final class ConfigStore {
             for (Module module : modules.all()) {
                 module.beginRestore();
                 JsonObject entry = ModuleSettings.entry(moduleJson, module.name());
-                boolean enabled = ModuleSettings.bool(entry, "enabled", false);
+                boolean enabled = ModuleSettings.bool(entry, "enabled", module.defaultEnabled());
                 if (module.name().equals("ChunkFinder"))
                     enabled &= ModuleSettings.bool(object(entry, "settings"), "cfEnabled", true);
                 module.enabled(enabled);
@@ -96,7 +96,7 @@ public final class ConfigStore {
             resetPanels();
             guiKey = 344;
             for (Module module : modules.all()) {
-                module.enabled(false);
+                module.enabled(module.defaultEnabled());
                 module.keybind(-1);
                 module.beginRestore();
                 module.settings().forEach(Setting::reset);
@@ -113,7 +113,7 @@ public final class ConfigStore {
         resetPanels();
         guiKey = 344;
         for (Module module : modules.all()) {
-            module.enabled(false);
+            module.enabled(module.defaultEnabled());
             module.keybind(-1);
             module.beginRestore();
             module.settings().forEach(Setting::reset);

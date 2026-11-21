@@ -91,6 +91,30 @@ public final class ClientFonts {
             }
         }
     }
+    /** Prepare on a toggle/tick, then draw without per-frame text render states or layout objects. */
+    public static RetainedLabel retain(String text, boolean bold) { return new RetainedLabel(text, bold); }
+    public static final class RetainedLabel {
+        private final RetainedText[] text = new RetainedText[FAMILIES.size()];
+        private final float[] widths = new float[FAMILIES.size()];
+        private RetainedLabel(String value, boolean bold) {
+            for (int i = 0; i < text.length; i++) {
+                Layout layout = FAMILIES.get(i).layout(value, bold);
+                widths[i] = layout.width;
+                text[i] = new RetainedText(Minecraft.getInstance().font, layout.runs, layout.offsets);
+            }
+        }
+        public float width() {
+            float width = 0;
+            for (int i = 0; i < widths.length; i++) width += widths[i] * FAMILIES.get(i).weight.value();
+            return width;
+        }
+        public void draw(GuiGraphics g, float x, float y, int color, net.minecraft.client.gui.navigation.ScreenRectangle viewport) {
+            for (int i = 0; i < text.length; i++) {
+                int alpha = Math.clamp(Math.round((color >>> 24) * FAMILIES.get(i).weight.value()), 0, 255);
+                if (alpha > 0) text[i].draw(g, x, y, (alpha << 24) | (color & 0xffffff), viewport);
+            }
+        }
+    }
     private static int layoutWidth(String text) {
         float width = 0;
         for (Family family : FAMILIES) width = Math.max(width, family.layout(text, false).width);

@@ -14,12 +14,20 @@ public abstract class Module {
     private final List<Setting<?>> settings = new ArrayList<>();
     private final List<Setting<?>> settingsView = Collections.unmodifiableList(settings);
     private boolean enabled;
+    private final boolean defaultEnabled;
+    public enum ToggleSource { KEYBIND, CLICK_GUI, PROGRAMMATIC }
+    @FunctionalInterface public interface ToggleListener { void changed(Module module, boolean enabled, ToggleSource source); }
+    private ToggleListener toggleListener = (module, enabled, source) -> {};
     private int keybind = -1;
     private Runnable onChange = () -> {};
     private GroupSetting currentGroup;
 
     protected Module(String name, String description, Category category) {
+        this(name, description, category, false);
+    }
+    protected Module(String name, String description, Category category, boolean defaultEnabled) {
         this.name = name; this.description = description; this.category = category;
+        this.enabled = this.defaultEnabled = defaultEnabled;
     }
     protected <T extends Setting<?>> T add(T setting) {
         setting.group(currentGroup);
@@ -43,18 +51,23 @@ public abstract class Module {
     public Category category() { return category; }
     public List<Setting<?>> settings() { return settingsView; }
     public boolean enabled() { return enabled; }
+    public boolean defaultEnabled() { return defaultEnabled; }
+    public void onToggle(ToggleListener listener) { toggleListener = listener; }
     public int keybind() { return keybind; }
     public void keybind(int key) { if (keybind != key) { keybind = key; onChange.run(); } }
     public void onChange(Runnable callback) {
         onChange = callback;
     }
-    public void enabled(boolean value) {
+    public void enabled(boolean value) { enabled(value, ToggleSource.PROGRAMMATIC); }
+    public void enabled(boolean value, ToggleSource source) {
         if (enabled == value) return;
         enabled = value;
         if (value) onEnable(); else onDisable();
         onChange.run();
+        if (enabled == value) toggleListener.changed(this, value, source);
     }
-    public void toggle() { enabled(!enabled); }
+    public void toggle() { toggle(ToggleSource.PROGRAMMATIC); }
+    public void toggle(ToggleSource source) { enabled(!enabled, source); }
     protected void onEnable() {}
     protected void onDisable() {}
     public void onTick(Minecraft client) {}

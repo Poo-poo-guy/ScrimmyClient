@@ -16,7 +16,9 @@
     "EditBoxMixin",
     "MultiLineEditBoxMixin",
     "SignEditScreenMixin",
-    "TextLineViewAccessor"
+    "TextLineViewAccessor",
+    "NotificationHudMixin",
+    "NotificationScreenMixin"
   ],
   "injectors": {
     "defaultRequire": 1
