@@ -31,9 +31,11 @@ public final class ToastQueue {
         for (int i = 0; i < size; i++) {
             Toast toast = visible[i];
             if (toast.identity == identity) {
+                boolean stateChanged = toast.enabled != enabled;
                 toast.name = name; toast.enabled = enabled; toast.closing = false;
                 toast.deadline = now + duration + .4;
                 toast.pulse.snap(1);
+                if (stateChanged) notifySound(enabled);
                 return;
             }
         }
@@ -83,7 +85,10 @@ public final class ToastQueue {
         toast.identity = identity; toast.name = name; toast.enabled = enabled; toast.style = style;
         toast.closing = false; toast.deadline = now + duration + .4; toast.generation++;
         toast.reveal.snap(0); toast.offset.snap(0); toast.state.snap(enabled ? 1 : 0); toast.pulse.snap(1);
-        // A future sound provider must remain cosmetic, including when it fails.
+        notifySound(enabled);
+    }
+    private void notifySound(boolean enabled) {
+        // Audio must remain cosmetic, including when a provider fails.
         try { sound.onShown(enabled); } catch (RuntimeException ignored) {}
     }
     private void remove(int index) {

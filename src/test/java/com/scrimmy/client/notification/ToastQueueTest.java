@@ -64,12 +64,13 @@ class ToastQueueTest {
         assertEquals(1, queue.get(0).reveal.value());
         queue.clear(); assertEquals(0, queue.size());
     }
-    @Test void soundIsAnEmptyReplaceableHookCalledOnlyWhenACardAppears() {
+    @Test void soundHookReportsAppearingCardsAndVisibleStateChangesOnly() {
         ToastQueue queue = new ToastQueue(); int[] calls = {0}; boolean[] state = {true};
         queue.sound(enabled -> { calls[0]++; state[0] = enabled; });
         Object id = new Object(); queue.show(id, "First", false, 0, 1);
         assertEquals(1, calls[0]); assertFalse(state[0]);
-        queue.show(id, "First", true, .1, 1); assertEquals(1, calls[0]);
+        queue.show(id, "First", true, .1, 1); assertEquals(2, calls[0]); assertTrue(state[0]);
+        queue.show(id, "Renamed", true, .2, 1); assertEquals(2, calls[0]);
         queue.sound(enabled -> { throw new IllegalStateException("future sound failure"); });
         assertDoesNotThrow(() -> queue.show(new Object(), "Another", true, .2, 1));
         assertEquals(2, queue.size());
@@ -106,6 +107,22 @@ class ToastQueueTest {
         float midSwitch = pill.state.value();
         queue.show(module, pill.name(), true, .51, 1, ToastStyle.PILL);
         assertEquals(midSwitch, pill.state.value()); assertEquals(1, queue.size());
+    }
+
+    @Test void waitingUpdatesAndDroppedOverflowAreSilentUntilAdmission() {
+        ToastQueue queue = new ToastQueue(); int[] calls = {0}; boolean[] state = {true};
+        queue.sound(enabled -> { calls[0]++; state[0] = enabled; });
+        for (int i = 0; i < 4; i++) queue.show(new Object(), "Visible", true, 0, 5);
+        advance(queue, 0, .5);
+        assertEquals(4, calls[0]);
+        Object waiting = new Object(); queue.show(waiting, "Waiting", true, .5, 5);
+        queue.show(waiting, "Waiting", false, .51, 5);
+        assertEquals(4, calls[0]); assertEquals(1, queue.waiting());
+        advance(queue, .51, 1);
+        assertEquals(5, calls[0]); assertFalse(state[0]);
+        queue.clear();
+        for (int i = 0; i < 12; i++) queue.show(new Object(), "Burst", true, 2, 5);
+        assertEquals(9, calls[0]); // Only four new visible cards; discarded/pending requests stay silent.
     }
 
 }

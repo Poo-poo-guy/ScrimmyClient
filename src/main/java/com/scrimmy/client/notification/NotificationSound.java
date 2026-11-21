@@ -1,6 +1,6 @@
 package com.scrimmy.client.notification;
 
-/** Extension point only: no audio is played until an implementation is supplied. */
+/** Invoked for a new visible toast or an accepted state change inside an existing toast. */
 @FunctionalInterface
 public interface NotificationSound {
     NotificationSound SILENT = enabled -> {};

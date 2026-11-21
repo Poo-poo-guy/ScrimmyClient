@@ -19,7 +19,11 @@ public final class NotificationSettings {
     public final NumberSetting opacity = new NumberSetting("notificationsOpacity", "Opacity", .78, .1, 1, .01);
     public final NumberSetting cornerRadius = new NumberSetting("notificationsCornerRadius", "Corner Radius", -1, -1, 26, 1);
     public final BooleanSetting accentTint = new BooleanSetting("notificationsAccentTint", "Accent Tint", true);
-    private final List<Setting<?>> settings = List.of(section, enabled, style, position, duration, source, opacity, cornerRadius, accentTint);
+    public final BooleanSetting sound = new BooleanSetting("notificationsSound", "Sound", true);
+    public final NumberSetting volume = new NumberSetting("notificationsVolume", "Volume", .25, 0, 1, .05);
+    public final BooleanSetting pitchVariation = new BooleanSetting("notificationsPitchVariation", "Pitch Variation", true);
+    private final List<Setting<?>> settings = List.of(section, enabled, style, position, duration, source, opacity, cornerRadius, accentTint,
+            sound, volume, pitchVariation);
 
     public NotificationSettings() {
         section.tooltip("Expand notification settings inside ScrimmyClient+.");
@@ -31,6 +35,9 @@ public final class NotificationSettings {
         opacity.tooltip("Background opacity in glass mode; solid mode remains opaque.");
         cornerRadius.tooltip("Auto (-1): global radius for Card, fully rounded Pill. Values 0–26 override both.");
         accentTint.tooltip("Use the accent color for enabled state text and a subtle glass tint.");
+        sound.tooltip("Play a UI click for a new notification or visible enabled/disabled change.");
+        volume.tooltip("Notification sound volume, multiplied by Minecraft's master and UI volumes.");
+        pitchVariation.tooltip("Slightly vary each click's pitch; disabled clicks always sound lower.");
         for (int i = 1; i < settings.size(); i++) settings.get(i).group(section);
     }
     public List<Setting<?>> settings() { return settings; }
