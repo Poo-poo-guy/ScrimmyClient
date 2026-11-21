@@ -1,0 +1,12 @@
+{
+  "notification_on": {
+    "sounds": [
+      { "name": "scrimmyclient:aula_click1", "preload": true }
+    ]
+  },
+  "notification_off": {
+    "sounds": [
+      { "name": "scrimmyclient:aula_click1", "preload": true }
+    ]
+  }
+}

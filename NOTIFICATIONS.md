@@ -13,6 +13,7 @@ Controls:
 - Corner Radius: Auto preserves the global Card radius and makes Pill fully rounded;
   an explicit 0–26 value overrides both, clamped to half their height.
 - Accent Tint: accents enabled state text and subtly tints enabled glass surfaces.
+- Sound: enabled by default; Volume: 0–1 (default .25); Pitch Variation: enabled by default.
 
 Auto is saved as `-1` and shown as “Auto” in the GUI. Tint, opacity, radius and width
 changes use the existing animation utilities; global animations off snaps transitions.
@@ -76,12 +77,42 @@ Style renderer instances, geometry, labels, texture bindings, tint adapters and
 matrices are retained; no notification-owned render objects, strings or lists are
 created per frame. Minecraft owns its normal GUI/GPU submission memory.
 
-`NotificationSound.onShown(boolean)` is unchanged and silent by default. It runs
-when a new card or pill is admitted, not for duplicate updates. No audio is added.
+`NotificationSound.onShown(boolean)` now runs for newly admitted cards/pills and
+actual state flips inside a visible toast. Identical-state/name-only updates,
+waiting duplicates and discarded overflow do not request audio. Source filtering
+and the Notifications master switch still happen before toast admission.
+
+`NotificationAudio.initialize`, called once from `ScrimmyClient.onInitializeClient`,
+registers `scrimmyclient:notification_on` and `scrimmyclient:notification_off` in
+`BuiltInRegistries.SOUND_EVENT`. Both definitions in `assets/scrimmyclient/sounds.json`
+reference `scrimmyclient:aula_click1` with preloading enabled. ON uses pitch 1.0,
+OFF .82, with optional ±.035 variation. The recording is shared, not duplicated.
+
+The mapped 1.21.11 `SimpleSoundInstance.forUI(event, pitch, volume)` creates a
+`SoundSource.UI`, listener-relative sound with no attenuation. The engine applies
+master/UI gain; the notification volume is passed without multiplying it again.
+Zero master/UI volume, zero notification volume, Sound off, and Notifications off
+all suppress playback.
+
+The hook only stores primitive request state. Playback is flushed on client ticks,
+including requests admitted by the renderer between ticks. A START_CLIENT_TICK
+counter limits playback to one sound per tick even if both flush points run.
+Requests in a burst coalesce to the latest state; muted/throttled requests are
+dropped rather than queued for later. Sound-instance allocation occurs only on
+an audible client-tick event, never in the notification render path. Resource
+availability is checked during reload, and Minecraft preloads/caches the recording.
+There is no per-toggle file loading.
+
+### Bundled recording
+
+The single supplied file is `assets/scrimmyclient/sounds/aula_click1.ogg`:
+mono Vorbis at 48 kHz, about 79 ms long. Both registered events reference that
+recording; OFF is distinguished by its lower pitch. Resource availability is
+rechecked on reload, so a missing or unavailable recording stays silent safely.
 
 ## Validation
 
-The Gradle build/remapping and all 129 JUnit tests passed. Tests cover migration,
+The Gradle build/remapping and all 135 JUnit tests passed. Tests cover migration,
 canonical precedence, corrupt legacy values, settings round trips, grouping, Auto
 radius defaults, mixed heights, retained styles, in-place name/state changes, and
 all previous queue/sound/toggle behavior.
@@ -92,3 +123,13 @@ source filtering, the master switch, the existing frame guard and sound extensio
 point. Screenshots confirmed rendering above ClickGUI. A saved config was checked
 for canonical notification settings and absence of the old module entry. Temporary
 smoke tooling is excluded from the mod.
+
+
+Audio-specific validation passed for tick coalescing, bounded pitch variation,
+settings persistence, visible state changes, unchanged-state deduplication, pending
+updates and discarded overflow. Resource tests verify both preloaded definitions
+resolve to the same packaged Vorbis recording. The Fabric runtime smoke test uses
+the actual bundled Aula file and verifies registry entries, resolved recording and
+active audio channel, UI-relative/no-attenuation instances, lower OFF pitch,
+same-tick limiting, source/master/Sound filtering, zero notification/UI/master
+volumes and pitch variation. Temporary smoke tooling is excluded from the mod.

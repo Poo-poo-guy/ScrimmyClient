@@ -22,6 +22,7 @@ public final class ScrimmyClient implements ClientModInitializer {
     private final Set<Integer> sampledKeys = new HashSet<>(), pressedKeys = new HashSet<>();
 
     @Override public void onInitializeClient() {
+        com.scrimmy.client.notification.NotificationAudio.initialize();
         CONFIG.load();
         var resources = net.fabricmc.fabric.api.resource.v1.ResourceLoader.get(net.minecraft.server.packs.PackType.CLIENT_RESOURCES);
         var uiReload = net.minecraft.resources.Identifier.fromNamespaceAndPath("scrimmyclient", "ui");
@@ -50,6 +51,7 @@ public final class ScrimmyClient implements ClientModInitializer {
         }
         MODULES.tick(client);
         com.scrimmy.client.notification.NotificationCenter.tick();
+        com.scrimmy.client.notification.NotificationAudio.flush();
         CONFIG.tick();
     }
 
