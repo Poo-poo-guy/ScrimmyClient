@@ -15,6 +15,7 @@ abstract class GameRendererMixin {
     @Inject(method = "render", at = @At("HEAD"))
     private void scrimmy$uiFrame(CallbackInfo ci) {
         com.scrimmy.client.animation.AnimationClock.UI.frame(System.nanoTime());
+        com.scrimmy.client.notification.NotificationRenderer.beginFrame();
         com.scrimmy.client.render.ClientFonts.frame();
         com.scrimmy.client.render.ThemeSurfaces.frame();
         com.scrimmy.client.render.PanelBlur.beginFrame();

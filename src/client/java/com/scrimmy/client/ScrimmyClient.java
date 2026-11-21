@@ -35,6 +35,7 @@ public final class ScrimmyClient implements ClientModInitializer {
             com.scrimmy.client.render.ClientFonts.close();
         });
         MODULES.all().forEach(Module::initialize);
+        MODULES.onToggle(com.scrimmy.client.notification.NotificationCenter::moduleToggled);
         ClientTickEvents.END_CLIENT_TICK.register(this::tick);
     }
 
@@ -45,9 +46,10 @@ public final class ScrimmyClient implements ClientModInitializer {
         if (pressed(client, guiKey) && client.screen == null) client.setScreen(new ClickGui(THEME, MODULES, CONFIG));
         for (Module module : MODULES.all()) {
             int key = module.keybind();
-            if (key >= 0 && key != guiKey && pressed(client, key) && client.screen == null) module.toggle();
+            if (key >= 0 && key != guiKey && pressed(client, key) && client.screen == null) module.toggle(Module.ToggleSource.KEYBIND);
         }
         MODULES.tick(client);
+        com.scrimmy.client.notification.NotificationCenter.tick();
         CONFIG.tick();
     }
 
