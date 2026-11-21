@@ -83,8 +83,11 @@ waiting duplicates and discarded overflow do not request audio. Source filtering
 and the Notifications master switch still happen before toast admission.
 
 `NotificationAudio.initialize`, called once from `ScrimmyClient.onInitializeClient`,
-registers `scrimmyclient:notification_on` and `scrimmyclient:notification_off` in
-`BuiltInRegistries.SOUND_EVENT`. Both definitions in `assets/scrimmyclient/sounds.json`
+installs the existing sound hook and client-tick/reload callbacks. The client-only
+`ClientNotificationSounds` class creates unregistered `SoundEvent` handles for
+`scrimmyclient:notification_on` and `scrimmyclient:notification_off` directly with
+`SoundEvent.createVariableRangeEvent`. Neither identifier is inserted into a
+Minecraft registry. Both unchanged definitions in `assets/scrimmyclient/sounds.json`
 reference `scrimmyclient:aula_click1` with preloading enabled. ON uses pitch 1.0,
 OFF .82, with optional ±.035 variation. The recording is shared, not duplicated.
 
@@ -129,7 +132,30 @@ Audio-specific validation passed for tick coalescing, bounded pitch variation,
 settings persistence, visible state changes, unchanged-state deduplication, pending
 updates and discarded overflow. Resource tests verify both preloaded definitions
 resolve to the same packaged Vorbis recording. The Fabric runtime smoke test uses
-the actual bundled Aula file and verifies registry entries, resolved recording and
+the actual bundled Aula file and verifies resource definitions, resolved recording and
 active audio channel, UI-relative/no-attenuation instances, lower OFF pitch,
 same-tick limiting, source/master/Sound filtering, zero notification/UI/master
 volumes and pitch variation. Temporary smoke tooling is excluded from the mod.
+
+
+## LAN registry compatibility
+
+The two previous `Registry.register(BuiltInRegistries.SOUND_EVENT, ...)` calls were
+removed. Registering them from a client initializer still mutated the built-in
+registry shared with the integrated LAN server. Unregistered sound handles resolve
+through the client SoundManager by identifier and require no synchronized raw id.
+
+All notification code, the particle pool/math helpers, and their Theme owner now
+live under `src/client/java`; the assets remain at their original resource paths.
+No notification/particle/registry code remains in the common Java source set.
+The client-only mod descriptor and client entrypoint are unchanged, and no common
+initializer is declared. HitParticles already draws client geometry without any
+custom ParticleType registration, so its behavior is unchanged.
+
+See REGISTRY-AUDIT.md for the full before/after inventory. The final synchronized
+registry additions list is empty. An isolated local LAN test passed with an old
+Scrimmy JAR guest (which still had both registered sound entries) and with a guest
+without a Scrimmy JAR. The fixed host's notification audio channel worked before
+and after both connections. This test used offline development profiles and a
+test-only authentication override; the two-authenticated-account matrix remains a
+manual check. No production networking or authentication code was changed.
