@@ -1,7 +1,6 @@
 package com.scrimmy.client.module;
 
 import com.scrimmy.client.module.combat.AutoTotem;
-import com.scrimmy.client.module.client.Notifications;
 import com.scrimmy.client.module.visual.HitParticles;
 import com.scrimmy.client.module.visual.TypingAnimation;
 import com.scrimmy.client.module.visual.BlockESPModule;
@@ -30,7 +29,6 @@ public final class ModuleManager {
             categories.put(category, entries);
             categoryViews.put(category, Collections.unmodifiableList(entries));
         }
-        register(new Notifications());
         register(new AutoTotem());
         register(new HitParticles());
         register(new TypingAnimation());

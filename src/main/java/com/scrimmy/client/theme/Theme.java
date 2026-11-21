@@ -2,6 +2,8 @@ package com.scrimmy.client.theme;
 
 import com.scrimmy.client.setting.*;
 import java.util.List;
+import java.util.ArrayList;
+import com.scrimmy.client.notification.NotificationSettings;
 import com.scrimmy.client.animation.AnimationStyle;
 
 public final class Theme {
@@ -20,8 +22,14 @@ public final class Theme {
     public final NumberSetting panelWidth = new NumberSetting("panelWidth", "Panel width", 200, 160, 280, 10);
     public final BooleanSetting animations = new BooleanSetting("animations", "Animations", true);
 
-    private final List<Setting<?>> settings = List.of(style, animation, animationSpeed, font,
-        accent, glassTint, blur, opacity, radius, glow, shadow, guiScale, panelWidth, animations);
+    public final NotificationSettings notifications = new NotificationSettings();
+    private final List<Setting<?>> settings;
+    public Theme() {
+        var all = new ArrayList<Setting<?>>(List.of(style, animation, animationSpeed, font,
+                accent, glassTint, blur, opacity, radius, glow, shadow, guiScale, panelWidth, animations));
+        all.addAll(notifications.settings());
+        settings = List.copyOf(all);
+    }
     public List<Setting<?>> settings() { return settings; }
     public void onChange(Runnable callback) { settings.forEach(s -> s.onChange(callback)); }
     public void reset() { settings.forEach(Setting::reset); }

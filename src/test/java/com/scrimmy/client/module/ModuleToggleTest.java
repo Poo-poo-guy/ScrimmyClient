@@ -1,6 +1,7 @@
 package com.scrimmy.client.module;
 
-import com.scrimmy.client.module.client.Notifications;
+import com.scrimmy.client.notification.NotificationSettings;
+import com.scrimmy.client.theme.Theme;
 import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import static org.junit.jupiter.api.Assertions.*;
@@ -13,14 +14,14 @@ class ModuleToggleTest {
             assertEquals(enabled, module.enabled()); sources.add(source);
         });
         for (Module module : manager.all()) {
-            // Use the no-op lifecycle of a test module below for stateful world modules.
+            // Redundant setters remain silent for every registered module.
             module.enabled(module.enabled(), Module.ToggleSource.KEYBIND);
         }
         assertTrue(sources.isEmpty());
-        Notifications notifications = manager.find(Notifications.class);
-        notifications.toggle(Module.ToggleSource.KEYBIND);
-        notifications.toggle(Module.ToggleSource.CLICK_GUI);
-        notifications.enabled(false);
+        Module target = manager.find(com.scrimmy.client.module.visual.TypingAnimation.class);
+        target.toggle(Module.ToggleSource.KEYBIND);
+        target.toggle(Module.ToggleSource.CLICK_GUI);
+        target.enabled(true);
         assertEquals(java.util.List.of(Module.ToggleSource.KEYBIND, Module.ToggleSource.CLICK_GUI, Module.ToggleSource.PROGRAMMATIC), sources);
     }
     @Test void futureModulesUseTheSameHookAndLifecycleVetoDoesNotReportAFalseEnabledState() {
@@ -35,11 +36,13 @@ class ModuleToggleTest {
         veto.onToggle((changed, enabled, source) -> { assertFalse(enabled); assertFalse(changed.enabled()); });
         veto.enabled(true); assertFalse(veto.enabled());
     }
-    @Test void notificationsHaveThreeControlsAndDefaultToEnabledWithKeybindOnly() {
-        Notifications module = new Notifications();
-        assertTrue(module.enabled()); assertTrue(module.defaultEnabled());
-        assertEquals(Category.CLIENT, module.category()); assertEquals(3, module.settings().size());
-        assertEquals("Keybind only", module.source.get()); assertEquals("Top Right", module.position.get());
-        assertEquals(2.5, module.duration.get());
+    @Test void notificationsLiveInScrimmyClientPlusAndNoSeparateModuleIsRegistered() {
+        Theme theme = new Theme(); NotificationSettings settings = theme.notifications;
+        assertTrue(settings.enabled.get());
+        assertEquals("Keybind only", settings.source.get()); assertEquals("Top Right", settings.position.get());
+        assertEquals(2.5, settings.duration.get());
+        assertTrue(theme.settings().containsAll(settings.settings()));
+        for (Module module : new ModuleManager().all()) assertNotEquals("Notifications", module.name());
+        for (var setting : settings.settings()) if (setting != settings.section) assertSame(settings.section, setting.group());
     }
 }

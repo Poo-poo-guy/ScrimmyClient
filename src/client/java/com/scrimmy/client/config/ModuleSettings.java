@@ -21,6 +21,25 @@ public final class ModuleSettings {
         return values;
     }
 
+    /** Lift the retired module's controls into ScrimmyClient+; each new canonical key wins. */
+    public static JsonObject appearance(JsonObject source, JsonObject modules) {
+        JsonObject values = appearance(source);
+        JsonObject legacy = entry(modules, "Notifications");
+        if (!values.has("notificationsEnabled") && legacy.has("enabled"))
+            values.add("notificationsEnabled", legacy.get("enabled").deepCopy());
+        JsonElement oldSettings = legacy.get("settings");
+        if (oldSettings != null && oldSettings.isJsonObject()) {
+            JsonObject old = oldSettings.getAsJsonObject();
+            for (String key : new String[]{"position", "duration", "source"}) {
+                String target = "notifications" + Character.toUpperCase(key.charAt(0)) + key.substring(1);
+                if (!values.has(target) && old.has(key)) values.add(target, old.get(key).deepCopy());
+            }
+        }
+        if (!values.has("notificationsOpacity") && source.has("opacity"))
+            values.add("notificationsOpacity", source.get("opacity").deepCopy());
+        return values;
+    }
+
     public static JsonObject migrate(String module, JsonObject source) {
         JsonObject values = source.deepCopy();
         if ((module.equals("ChunkFinder") || module.equals("Basefinding"))) {

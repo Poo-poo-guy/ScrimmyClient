@@ -716,6 +716,7 @@ public final class ClickGui extends Screen {
         return height;
     }
     private String numberLabel(NumberSetting number) {
+        if (number == theme.notifications.cornerRadius && number.get() < 0) return "Auto";
         ControlVisual visual = controls.get(number);
         double animated = visual.label.value();
         double current = number.step() >= 1 ? Math.round(animated) : Math.round(animated * 100) / 100.0;
