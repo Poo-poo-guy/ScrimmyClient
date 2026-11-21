@@ -2,6 +2,7 @@ package com.scrimmy.client.module;
 
 import com.scrimmy.client.module.combat.AutoTotem;
 import com.scrimmy.client.module.visual.HitParticles;
+import com.scrimmy.client.module.visual.TypingAnimation;
 import com.scrimmy.client.module.visual.BlockESPModule;
 import com.scrimmy.client.module.visual.AntiVanish;
 import com.scrimmy.client.module.visual.LogoutGhosts;
@@ -28,6 +29,7 @@ public final class ModuleManager {
         }
         register(new AutoTotem());
         register(new HitParticles());
+        register(new TypingAnimation());
         register(new BlockESPModule());
         register(new AntiVanish());
         register(new LogoutGhosts());

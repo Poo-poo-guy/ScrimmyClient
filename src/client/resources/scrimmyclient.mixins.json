@@ -2,6 +2,20 @@
   "required": true,
   "package": "com.scrimmy.client.mixin",
   "compatibilityLevel": "JAVA_25",
-  "client": ["ClientPacketListenerMixin", "LevelChunkMixin", "CameraMixin", "MouseHandlerMixin", "GameRendererMixin", "MinecraftMixin", "LevelRendererMixin"],
-  "injectors": { "defaultRequire": 1 }
+  "client": [
+    "ClientPacketListenerMixin",
+    "LevelChunkMixin",
+    "CameraMixin",
+    "MouseHandlerMixin",
+    "GameRendererMixin",
+    "MinecraftMixin",
+    "LevelRendererMixin",
+    "EditBoxMixin",
+    "MultiLineEditBoxMixin",
+    "SignEditScreenMixin",
+    "TextLineViewAccessor"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
 }
