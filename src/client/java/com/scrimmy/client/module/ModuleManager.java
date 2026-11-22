@@ -9,6 +9,7 @@ import com.scrimmy.client.module.visual.LogoutGhosts;
 import com.scrimmy.client.module.visual.Freecam;
 import com.scrimmy.client.module.basefinding.Basefinding;
 import com.scrimmy.client.module.basefinding.DrillTrail;
+import com.scrimmy.client.module.basefinding.SoundFinder;
 import net.minecraft.client.Minecraft;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -38,6 +39,7 @@ public final class ModuleManager {
         register(new Freecam());
         register(new Basefinding());
         register(new DrillTrail());
+        register(new SoundFinder());
     }
     private void register(Module module) {
         module.onToggle((changed, enabled, source) -> toggleListener.changed(changed, enabled, source));
