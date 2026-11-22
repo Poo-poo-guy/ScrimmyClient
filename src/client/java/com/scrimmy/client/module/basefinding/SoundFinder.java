@@ -22,9 +22,10 @@ import java.util.Arrays;
 public final class SoundFinder extends Module {
     public final NumberSetting duration, fadeTime, maxSources, chunkHeight, angle, mediumThreshold, redThreshold,
             weakWeight, mechanicalWeight, unusualWeight, criticalWeight, repeatWeight, clusterWeight,
-            sustainedWeight, repeatWindow, sustainedAfter, maxDistance, distanceFade;
-    public final BooleanSetting throughWalls, softFill, chunkHighlight, entitySounds, logDetections;
-    public final ModeSetting nametagMode, minimumSeverity;
+            sustainedWeight, repeatWindow, sustainedAfter, maxDistance, distanceFade,
+            animationIn, animationOut, lingerTime, hysteresisMargin;
+    public final BooleanSetting throughWalls, softFill, chunkHighlight, entitySounds, logDetections, redFlagPulse;
+    public final ModeSetting nametagMode, minimumSeverity, animationStyle;
     public final ColorSetting weakColor, mediumColor, redColor;
     public final SoundTracker tracker = new SoundTracker();
     private static final String DEFAULT_IGNORE = "ambient., weather., block.water., block.lava., entity.player.swim, "
@@ -58,6 +59,13 @@ public final class SoundFinder extends Module {
         nametagMode = add(new ModeSetting("nametagMode", "Nametag mode", "Look-at only",
                 "Look-at only", "Look-at plus always show Red flags", "Off"));
         angle = number("angle", "Look-at angle", 4, .5, 20, .5);
+        group("tagAnimation", "Nametag animation", false);
+        animationStyle = add(new ModeSetting("animationStyle", "Animation style", "Pop", "Fade", "Pop", "Slide", "Glass expand"));
+        animationIn = number("animationIn", "Animation in duration (ms)", 200, 0, 2000, 10);
+        animationOut = number("animationOut", "Animation out duration (ms)", 250, 0, 2000, 10);
+        lingerTime = number("lingerTime", "Linger time (ms)", 150, 0, 1000, 10);
+        hysteresisMargin = number("hysteresisMargin", "Hysteresis margin (degrees)", 2, 0, 10, .25);
+        redFlagPulse = add(new BooleanSetting("redFlagPulse", "Red flag pulse", true));
         group("severity", "Severity", false);
         mediumThreshold = number("mediumThreshold", "Medium threshold", 4, 1, 100, .5);
         redThreshold = number("redThreshold", "Red flag threshold", 12, 1, 200, .5);
@@ -90,6 +98,12 @@ public final class SoundFinder extends Module {
         minimumSeverity.tooltip("Hide evidence below this severity without deleting its history.");
         nametagMode.tooltip("Show the closest source in the look cone, optionally also visible Red flags.");
         angle.tooltip("Cone half-angle in degrees; works through terrain and uses the camera direction.");
+        animationStyle.tooltip("Fade changes opacity; Pop adds a soft overshoot; Slide moves the tag; Glass expand opens the pill in two axes.");
+        animationIn.tooltip("Entrance duration in milliseconds, independent of frame rate; zero appears immediately.");
+        animationOut.tooltip("Exit duration in milliseconds; outgoing tags remain until their progress reaches zero.");
+        lingerTime.tooltip("Wait this many milliseconds outside the outer look cone before fading out; switching targets skips this delay.");
+        hysteresisMargin.tooltip("Keep the current target until it exceeds the look-at angle plus this margin.");
+        redFlagPulse.tooltip("Slowly pulse the border glow of visible Red flag nametags.");
         mediumThreshold.tooltip("Minimum score for the Medium rating.");
         weakWeight.tooltip("Base score for doors, buttons, ordinary containers and other one-off sounds.");
         mechanicalWeight.tooltip("Base score for pistons, dispensers and droppers.");
