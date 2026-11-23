@@ -13,13 +13,11 @@ import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.core.registries.Registries;
 import net.minecraft.network.protocol.game.*;
 import java.util.Arrays;
 
 /** Server-sent sound evidence only; never registers game content or plays synthetic sounds. */
-public final class SoundFinder extends Module {
+public final class SoundFinder extends Module implements SoundFinderRenderer.Provider {
     public final NumberSetting duration, fadeTime, maxSources, chunkHeight, angle, mediumThreshold, redThreshold,
             weakWeight, mechanicalWeight, unusualWeight, criticalWeight, repeatWeight, clusterWeight,
             sustainedWeight, repeatWindow, sustainedAfter, maxDistance, distanceFade,
@@ -120,6 +118,24 @@ public final class SoundFinder extends Module {
         for (Setting<?> setting : settings()) if (setting instanceof GroupSetting)
             setting.tooltip("Expand or collapse the " + setting.label().toLowerCase(java.util.Locale.ROOT) + " controls.");
     }
+
+    @Override public java.util.Collection<SoundTracker.Source> blocks() { return tracker.blocks(); }
+    @Override public java.util.Collection<SoundTracker.Source> entities() { return tracker.entities(); }
+    @Override public java.util.Collection<SoundTracker.Chunk> chunks() { return tracker.chunks(); }
+    @Override public NumberSetting maxDistance() { return maxDistance; }
+    @Override public ModeSetting nametagMode() { return nametagMode; }
+    @Override public NumberSetting angle() { return angle; }
+    @Override public NumberSetting hysteresisMargin() { return hysteresisMargin; }
+    @Override public BooleanSetting softFill() { return softFill; }
+    @Override public BooleanSetting chunkHighlight() { return chunkHighlight; }
+    @Override public NumberSetting chunkHeight() { return chunkHeight; }
+    @Override public NumberSetting animationIn() { return animationIn; }
+    @Override public NumberSetting animationOut() { return animationOut; }
+    @Override public NumberSetting lingerTime() { return lingerTime; }
+    @Override public NumberSetting distanceFade() { return distanceFade; }
+    @Override public ModeSetting animationStyle() { return animationStyle; }
+    @Override public BooleanSetting redFlagPulse() { return redFlagPulse; }
+    @Override public BooleanSetting throughWalls() { return throughWalls; }
     private NumberSetting number(String key, String label, double value, double min, double max, double step) {
         return add(new NumberSetting(key, label, value, min, max, step));
     }
@@ -161,8 +177,8 @@ public final class SoundFinder extends Module {
         if (setting == entitySounds && !entitySounds.get()) tracker.clearEntities();
     }
     public void sound(ClientboundSoundPacket packet) {
-        hear(BlockPos.containing(packet.getX(), packet.getY(), packet.getZ()),
-                packet.getSound().value().location().toString(), packet.getSource().getName(), false);
+        var sound = SoundCapture.read(packet);
+        hear(sound.pos(), sound.id(), sound.category(), false);
     }
     public void entitySound(ClientboundSoundEntityPacket packet) {
         Minecraft mc = Minecraft.getInstance();
@@ -176,11 +192,7 @@ public final class SoundFinder extends Module {
     public void levelEvent(ClientboundLevelEventPacket packet) {
         Minecraft mc = Minecraft.getInstance();
         if (!enabled() || mc.level == null) return;
-        String sound;
-        if (packet.getType() == 1010) {
-            sound = mc.level.registryAccess().lookupOrThrow(Registries.JUKEBOX_SONG).get(packet.getData())
-                    .map(song -> song.value().soundEvent().value().location().toString()).orElse(null);
-        } else sound = SoundLevelEvents.sound(packet.getType(), packet.getData());
+        String sound = SoundCapture.levelSound(mc.level, packet);
         if (sound != null) hear(packet.getPos(), sound, SoundLevelEvents.category(packet.getType()), false);
     }
     private SoundTracker.Source hear(BlockPos pos, String sound, String category, boolean entity) {
@@ -193,11 +205,7 @@ public final class SoundFinder extends Module {
         return source;
     }
     private void confirm(SoundTracker.Source s) {
-        s.confirmed = false;
-        if (s.entity) { s.blockId = "entity marker"; return; }
-        if (!world.hasChunk(s.pos.getX() >> 4, s.pos.getZ() >> 4)) { s.blockId = "unloaded"; return; }
-        s.blockId = BuiltInRegistries.BLOCK.getKey(world.getBlockState(s.pos).getBlock()).toString();
-        s.confirmed = SoundTracker.matches(s.soundId, s.blockId);
+        SoundCapture.confirm(world, s);
     }
     @Override public void onTick(Minecraft mc) {
         if (mc.level != world) session(mc.level);

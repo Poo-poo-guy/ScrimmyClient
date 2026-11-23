@@ -18,7 +18,9 @@
     "SignEditScreenMixin",
     "TextLineViewAccessor",
     "NotificationHudMixin",
-    "NotificationScreenMixin"
+    "NotificationScreenMixin",
+    "ActivityPacketListenerMixin",
+    "MoveEntityPacketAccessor"
   ],
   "injectors": {
     "defaultRequire": 1
