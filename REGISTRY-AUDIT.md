@@ -111,3 +111,28 @@ The LAN test used isolated offline development profiles and a test-only server
 authentication override. Authenticated account 1/account 2 login remains a manual
 check; production authentication/networking code was not modified. All test worlds,
 launchers, and helper mods are outside the repository/distributed JAR.
+
+## ActivityLog audit
+
+ActivityLog adds **no Minecraft registry entries**. Complete remaining list: `[]`.
+All new production Java lives in `src/client/java`, and the two new mixins are
+listed exclusively in the mixin configuration's `client` array. No common source,
+entrypoint, dependency or game-content resource registration changed.
+
+- `ActivityPacketListenerMixin` observes existing packets after their client-thread
+  handoff. It does not register payload types, channels or packets, or send anything.
+- `SoundCapture` reads vanilla sound/block IDs and the existing jukebox-song registry.
+  `SoundTracker.score` is pure calculation. Neither mutates a registry.
+- The shared `SoundFinderRenderer` adds the client-local HUD callback
+  `scrimmyclient:activity_log` and reuses existing local graphics pipelines.
+- `ActivityWaypoints` inserts a transient position into `ClientWaypointManager`.
+  Its icon uses the existing vanilla default style; it registers no waypoint style
+  or resource and sends no packet.
+- `ActivityHistory` uses only local JSON/file I/O. There are no HTTP, socket,
+  telemetry or other network calls in the feature.
+
+The full Gradle build and tests include packet target/anchor checks against the
+mapped 1.21.11 bytecode, client-only mixin checks, history persistence/pruning tests,
+and existing SoundFinder tracking/animation tests. Interactive alt sightings,
+clipboard/rendering and joining LAN from an older second instance remain manual
+acceptance tests; this change does not claim those have been run headlessly.

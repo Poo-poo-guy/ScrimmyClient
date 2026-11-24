@@ -5,6 +5,7 @@ import com.google.gson.*;
 import com.scrimmy.client.config.*;
 import com.scrimmy.client.module.visual.BlockESPModule;
 import com.scrimmy.client.module.basefinding.SoundFinder;
+import com.scrimmy.client.module.basefinding.ActivityLog;
 import org.junit.jupiter.api.Test;
 import java.util.List;
 
@@ -13,8 +14,8 @@ class ModuleSettingsTest {
         ModuleManager source = new ModuleManager(), target = new ModuleManager();
         for (int i = 0; i < source.all().size(); i++) {
             Module module = source.all().get(i), restored = target.all().get(i);
-            // SoundFinder explicitly exposes grouped severity, expiry and rendering controls.
-            if (!(module instanceof SoundFinder)) assertTrue(module.settings().size() <= 6, module.name());
+            // Detection logs explicitly expose grouped capture, retention and rendering controls.
+            if (!(module instanceof SoundFinder) && !(module instanceof ActivityLog)) assertTrue(module.settings().size() <= 6, module.name());
             JsonObject values = new JsonObject();
             module.settings().forEach(s -> {
                 assertNotEquals(s.label(), s.tooltip(), module.name() + ": " + s.label());

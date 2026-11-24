@@ -20,7 +20,39 @@ import java.util.*;
 public final class SoundFinderRenderer implements AutoCloseable {
     private static final int[][] EDGES = {{0,1},{2,3},{4,5},{6,7},{0,2},{1,3},{4,6},{5,7},{0,4},{1,5},{2,6},{3,7}};
     private static final int[][] FACES = {{0,2,3,1},{4,5,7,6},{0,1,5,4},{2,6,7,3},{0,4,6,2},{1,3,7,5}};
-    private final SoundFinder module;
+    /** A read-only provider lets historical evidence use the exact same tag renderer. */
+    public interface Provider {
+        boolean enabled();
+        net.minecraft.client.multiplayer.ClientLevel world();
+        Collection<SoundTracker.Source> blocks();
+        Collection<SoundTracker.Source> entities();
+        Collection<SoundTracker.Chunk> chunks();
+        int severity(double score);
+        int minimum();
+        int color(int severity);
+        com.scrimmy.client.setting.NumberSetting maxDistance();
+        com.scrimmy.client.setting.ModeSetting nametagMode();
+        com.scrimmy.client.setting.NumberSetting angle();
+        com.scrimmy.client.setting.NumberSetting hysteresisMargin();
+        com.scrimmy.client.setting.BooleanSetting softFill();
+        com.scrimmy.client.setting.BooleanSetting chunkHighlight();
+        com.scrimmy.client.setting.NumberSetting chunkHeight();
+        com.scrimmy.client.setting.NumberSetting animationIn();
+        com.scrimmy.client.setting.NumberSetting animationOut();
+        com.scrimmy.client.setting.NumberSetting lingerTime();
+        com.scrimmy.client.setting.NumberSetting distanceFade();
+        com.scrimmy.client.setting.ModeSetting animationStyle();
+        com.scrimmy.client.setting.BooleanSetting redFlagPulse();
+        com.scrimmy.client.setting.BooleanSetting throughWalls();
+        default String[] labelLines(SoundTracker.Source s, int severity, long now, double distance) {
+            return new String[] {SoundFinder.label(severity) + (s.entity ? " · Entity marker" : " · " + (s.confirmed ? "confirmed" : "unconfirmed")),
+                    s.soundId, s.blockId + " · " + s.category,
+                    s.hits + " times heard · " + Math.max(0, (now - s.lastHeard) / 1000) + "s ago · " + Math.round(distance) + "m",
+                    s.pos.getX() + ", " + s.pos.getY() + ", " + s.pos.getZ()};
+        }
+        default String hudId() { return "sound_finder"; }
+    }
+    private final Provider module;
     private final WorldOverlayRenderer geometry = new WorldOverlayRenderer("Scrimmy SoundFinder");
     private final PanelBlur blur = new PanelBlur();
     private final Matrix4f view = new Matrix4f(), projection = new Matrix4f();
@@ -53,11 +85,11 @@ public final class SoundFinderRenderer implements AutoCloseable {
             }
         }
     }
-    public SoundFinderRenderer(SoundFinder module) { this.module = module; }
+    public SoundFinderRenderer(Provider module) { this.module = module; }
     public void initialize() {
         // 1024 sources (72 vertices/box) plus 1024 chunk rectangles (16 vertices each).
         geometry.reserve(1024 * 88);
-        HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("scrimmyclient", "sound_finder"), (g, delta) -> hud(g));
+        HudElementRegistry.addLast(Identifier.fromNamespaceAndPath("scrimmyclient", module.hudId()), (g, delta) -> hud(g));
     }
     public void clear() {
         cache.clear(); selection.clear(); visuals = new Visual[0]; chunks = new SoundTracker.Chunk[0];
@@ -69,12 +101,12 @@ public final class SoundFinderRenderer implements AutoCloseable {
             screenWidth = w; screenHeight = h; screen = new ScreenRectangle(0, 0, w, h);
         }
         Set<SoundTracker.Source> live = Collections.newSetFromMap(new IdentityHashMap<>());
-        live.addAll(module.tracker.blocks()); live.addAll(module.tracker.entities());
+        live.addAll(module.blocks()); live.addAll(module.entities());
         // An expired/filtered outgoing source keeps its own panel/timeline until the exit finishes.
         cache.values().removeIf(v -> !live.contains(v.source) && v.animation.progress() == 0);
         for (Visual v : cache.values()) v.eligible = false;
         var camera = mc.gameRenderer.getMainCamera().position();
-        double range = module.maxDistance.get();
+        double range = module.maxDistance().get();
         int revision = ClientFonts.revision();
         for (var s : live) {
             int severity = module.severity(s.score);
@@ -87,11 +119,8 @@ public final class SoundFinderRenderer implements AutoCloseable {
             v.x = x; v.y = y; v.z = z; v.distance = distance; v.severity = severity;
             v.color = module.color(severity); v.opacity = s.opacity;
             boolean reload = v.fontRevision != revision;
-            v.line(0, SoundFinder.label(severity) + (s.entity ? " · Entity marker" : " · " + (s.confirmed ? "confirmed" : "unconfirmed")), reload);
-            v.line(1, s.soundId, reload);
-            v.line(2, s.blockId + " · " + s.category, reload);
-            v.line(3, s.hits + " times heard · " + Math.max(0, (now - s.lastHeard) / 1000) + "s ago · " + Math.round(distance) + "m", reload);
-            v.line(4, s.pos.getX() + ", " + s.pos.getY() + ", " + s.pos.getZ(), reload);
+            String[] lines = module.labelLines(s, severity, now, distance);
+            for (int line = 0; line < lines.length; line++) v.line(line, lines[line], reload);
             v.fontRevision = revision;
         }
         for (Visual v : cache.values()) if (v.fontRevision != revision) {
@@ -104,7 +133,7 @@ public final class SoundFinderRenderer implements AutoCloseable {
         if (projected.length < visuals.length) {
             projected = new Visual[visuals.length]; placedBounds = new float[visuals.length * 4];
         }
-        chunks = module.tracker.chunks().toArray(SoundTracker.Chunk[]::new);
+        chunks = module.chunks().toArray(SoundTracker.Chunk[]::new);
     }
     public void extract(WorldExtractionContext context) {
         Arrays.fill(projected, 0, projectedCount, null); projectedCount = 0; geometry.clear();
@@ -115,11 +144,11 @@ public final class SoundFinderRenderer implements AutoCloseable {
         lastFrame = now;
         view.set(context.viewMatrix()); geometry.begin(view); projection.set(context.cullProjectionMatrix()).mul(view);
         var camera = context.worldState().cameraRenderState;
-        double cx = camera.pos.x, cy = camera.pos.y, cz = camera.pos.z, range = module.maxDistance.get();
+        double cx = camera.pos.x, cy = camera.pos.y, cz = camera.pos.z, range = module.maxDistance().get();
         // Use the camera quaternion (including Freecam/third person), never the player's block raycast.
         var look = mc.gameRenderer.getMainCamera().forwardVector();
-        boolean tagsEnabled = !module.nametagMode.get().equals("Off");
-        selection.begin(module.angle.get(), module.hysteresisMargin.get());
+        boolean tagsEnabled = !module.nametagMode().get().equals("Off");
+        selection.begin(module.angle().get(), module.hysteresisMargin().get());
         for (Visual v : visuals) {
             double dx = v.x - cx, dy = v.y - cy, dz = v.z - cz, distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
             v.inRange = distance <= range && distance >= .001;
@@ -129,12 +158,12 @@ public final class SoundFinderRenderer implements AutoCloseable {
             if (opacity < .002) continue;
             float x = (float)dx, y = (float)dy, z = (float)dz;
             float half = v.source.entity ? .17f : .503f;
-            box(x - half, y - half, z - half, half * 2, alpha(v.color, opacity), module.softFill.get() && !v.source.entity);
+            box(x - half, y - half, z - half, half * 2, alpha(v.color, opacity), module.softFill().get() && !v.source.entity);
         }
         selection.finish();
-        if (module.chunkHighlight.get()) for (SoundTracker.Chunk c : chunks) {
+        if (module.chunkHighlight().get()) for (SoundTracker.Chunk c : chunks) {
             int severity = module.severity(c.score);
-            double dx = c.x * 16 + 8 - cx, dz = c.z * 16 + 8 - cz, dy = module.chunkHeight.get() - cy;
+            double dx = c.x * 16 + 8 - cx, dz = c.z * 16 + 8 - cz, dy = module.chunkHeight().get() - cy;
             double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
             if (distance > range || severity < module.minimum()) continue;
             int color = alpha(module.color(severity), c.opacity * distanceFade(distance, range));
@@ -142,8 +171,8 @@ public final class SoundFinderRenderer implements AutoCloseable {
             geometry.line(x,y,z,x+16,y,z,color,1.5f); geometry.line(x+16,y,z,x+16,y,z+16,color,1.5f);
             geometry.line(x+16,y,z+16,x,y,z+16,color,1.5f); geometry.line(x,y,z+16,x,y,z,color,1.5f);
         }
-        boolean redMode = module.nametagMode.get().equals("Look-at plus always show Red flags");
-        double in = module.animationIn.get() / 1000, out = module.animationOut.get() / 1000, linger = module.lingerTime.get() / 1000;
+        boolean redMode = module.nametagMode().get().equals("Look-at plus always show Red flags");
+        double in = module.animationIn().get() / 1000, out = module.animationOut().get() / 1000, linger = module.lingerTime().get() / 1000;
         int redCount = 0;
         Visual target = selection.active();
         for (Visual v : visuals) {
@@ -160,7 +189,7 @@ public final class SoundFinderRenderer implements AutoCloseable {
         for (Visual v : visuals) if (v != target && !v.lookTag && v.animation.progress() > 0) project(v, cx, cy, cz, range);
     }
     private double distanceFade(double distance, double range) {
-        return SoundMath.distanceFade(distance, range, module.distanceFade.get());
+        return SoundMath.distanceFade(distance, range, module.distanceFade().get());
     }
     private void project(Visual v, double cx, double cy, double cz, double range) {
         double dx = v.x - cx, dy = v.y - cy, dz = v.z - cz, distance = Math.sqrt(dx*dx+dy*dy+dz*dz);
@@ -184,7 +213,7 @@ public final class SoundFinderRenderer implements AutoCloseable {
         if (!module.enabled() || mc.level == null || mc.level != module.world() || mc.options.hideGui || screen == null || projectedCount == 0) return;
         if (ScrimmyClient.THEME.blur.get() >= 1 && mc.screen == null) blur.capture(mc, ScrimmyClient.THEME.blur.get().intValue()); else blur.close();
         int placed = 0;
-        SoundTagAnimation.Style style = SoundTagAnimation.style(module.animationStyle.get());
+        SoundTagAnimation.Style style = SoundTagAnimation.style(module.animationStyle().get());
         for (int i=0;i<projectedCount;i++) {
             Visual v=projected[i];
             if (v.fontRevision != ClientFonts.revision()) continue;
@@ -206,8 +235,8 @@ public final class SoundFinderRenderer implements AutoCloseable {
             if(overlap)continue;
             int b=placed++*4;placedBounds[b]=x-half;placedBounds[b+1]=y;placedBounds[b+2]=x+half;placedBounds[b+3]=y+height;
             int background=ThemeSurfaces.fill();
-            double glow = module.redFlagPulse.get() && v.severity == 2 ? v.animation.pulse() : 1;
-            int shadow = module.redFlagPulse.get() && v.severity == 2 ? (v.color & 0xffffff) | 0x40000000 : 0x40000000;
+            double glow = module.redFlagPulse().get() && v.severity == 2 ? v.animation.pulse() : 1;
+            int shadow = module.redFlagPulse().get() && v.severity == 2 ? (v.color & 0xffffff) | 0x40000000 : 0x40000000;
             g.pose().pushMatrix();g.pose().translate(x,y);g.pose().scale(scaleX,scaleY);
             v.panel.draw(g,v.width,66,Math.min(15,ScrimmyClient.THEME.radius.get().intValue()+4),
                     alpha(background,v.tagOpacity),alpha(v.color,v.tagOpacity*.4*glow),alpha(shadow,v.tagOpacity*glow),screen,blur.texture());
@@ -216,7 +245,7 @@ public final class SoundFinderRenderer implements AutoCloseable {
             g.pose().popMatrix();
         }
     }
-    public void draw(WorldRenderContext context) { if (module.enabled()) geometry.draw(context, module.throughWalls.get()); }
+    public void draw(WorldRenderContext context) { if (module.enabled()) geometry.draw(context, module.throughWalls().get()); }
     private static int alpha(int color,double factor){return ((int)Math.min(255,(color>>>24)*Math.max(0,factor))<<24)|(color&0xffffff);}
     @Override public void close() { clear(); geometry.close(); }
 }

@@ -78,13 +78,18 @@ public final class SoundTracker {
     }
     private static void score(Source s, long now, long duration, long fade, Weights w, int cluster) {
         while (!s.recent.isEmpty() && now - s.recent.peekFirst() > w.window) s.recent.removeFirst();
-        double sustained = now - s.firstHeard < w.sustainedAfter ? 0
-                : w.sustained * (1 + (now - s.firstHeard - w.sustainedAfter) / 60_000.0);
-        s.score = base(s.soundId, w) + Math.max(0, s.recent.size() - 1) * w.repeat
-                + (cluster - 1) * w.cluster + sustained;
+        s.score = score(s.soundId, w, s.recent.size(), now - s.firstHeard, cluster);
         double t = fade <= 0 ? 1 : Math.clamp((duration - (now - s.lastHeard)) / (double)Math.min(fade, duration), 0, 1);
         s.opacity = t * t * (3 - 2 * t);
     }
+    /** Shared scoring for live sources and persisted positional evidence. */
+    public static double score(String id, Weights w, int recentHits, long age, int cluster) {
+        double sustained = age < w.sustainedAfter ? 0
+                : w.sustained * (1 + (age - w.sustainedAfter) / 60_000.0);
+        return base(id, w) + Math.max(0, recentHits - 1) * w.repeat
+                + (cluster - 1) * w.cluster + sustained;
+    }
+    public static Source historical(BlockPos pos, long firstSeen) { return new Source(pos, false, firstSeen); }
     public static double base(String id, Weights w) {
         String path = path(id);
         if (path.contains("explode") || path.contains("explosion") || path.contains("portal")
