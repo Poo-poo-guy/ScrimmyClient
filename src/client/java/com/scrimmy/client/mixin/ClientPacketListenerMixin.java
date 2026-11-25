@@ -44,6 +44,8 @@ abstract class ClientPacketListenerMixin {
         DrillTrail drill = ScrimmyClient.MODULES.find(DrillTrail.class);
         if (drill != null && drill.scanner != null)
             drill.scanner.changed(Minecraft.getInstance().level, packet.getX(), packet.getZ());
+        var v2 = ScrimmyClient.MODULES.find(com.scrimmy.client.module.basefinding.ChunkFinderV2.class);
+        if (v2 != null && v2.enabled()) v2.changed(Minecraft.getInstance().level, packet.getX(), packet.getZ());
     }
     @Inject(method = "handleDamageEvent", at = @At("TAIL"))
     private void scrimmy$damage(ClientboundDamageEventPacket packet, CallbackInfo ci) {

@@ -39,6 +39,7 @@ public final class ModuleManager {
         register(new LogoutGhosts());
         register(new Freecam());
         register(new Basefinding());
+        register(new com.scrimmy.client.module.basefinding.ChunkFinderV2());
         register(new DrillTrail());
         register(new SoundFinder());
         register(new ActivityLog());
