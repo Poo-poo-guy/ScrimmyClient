@@ -33,6 +33,15 @@ public final class DrillTrail extends Module {
     private Future<TunnelNetwork.Network> task;
     private TunnelNetwork.Network network = TunnelNetwork.Network.EMPTY;
     private ClientLevel world;
+    public record DrillTarget(int x, int z) {}
+    private DrillTarget drillTarget;
+
+    /** Local, session-scoped destination. Setting it never toggles or retunes DrillTrail. */
+    public void setDrillTarget(int chunkX, int chunkZ) {
+        drillTarget = new DrillTarget(chunkX, chunkZ);
+    }
+    public DrillTarget drillTarget() { return drillTarget; }
+    public void clearDrillTarget() { drillTarget = null; }
     private boolean dirty = true;
     private int ticks;
 
@@ -73,7 +82,7 @@ public final class DrillTrail extends Module {
     private void session(ClientLevel next) {
         if (next == world) return;
         if (task != null) task.cancel(true); task = null;
-        world = next; memory.clear(); network = TunnelNetwork.Network.EMPTY; dirty = true; ticks = 0;
+        world = next; drillTarget = null; memory.clear(); network = TunnelNetwork.Network.EMPTY; dirty = true; ticks = 0;
         if (scanner != null) scanner.reset(next);
         if (renderer != null) renderer.clear();
     }

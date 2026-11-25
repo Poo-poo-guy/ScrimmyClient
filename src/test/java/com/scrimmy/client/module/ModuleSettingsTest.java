@@ -6,6 +6,7 @@ import com.scrimmy.client.config.*;
 import com.scrimmy.client.module.visual.BlockESPModule;
 import com.scrimmy.client.module.basefinding.SoundFinder;
 import com.scrimmy.client.module.basefinding.ActivityLog;
+import com.scrimmy.client.module.basefinding.ChunkFinderV2;
 import org.junit.jupiter.api.Test;
 import java.util.List;
 
@@ -14,8 +15,9 @@ class ModuleSettingsTest {
         ModuleManager source = new ModuleManager(), target = new ModuleManager();
         for (int i = 0; i < source.all().size(); i++) {
             Module module = source.all().get(i), restored = target.all().get(i);
-            // Detection logs explicitly expose grouped capture, retention and rendering controls.
-            if (!(module instanceof SoundFinder) && !(module instanceof ActivityLog)) assertTrue(module.settings().size() <= 6, module.name());
+            // V2 needs independently weighted features; tuning stays in collapsed groups.
+            if (module instanceof ChunkFinderV2) assertTrue(module.settings().size() <= 21, module.name());
+            else if (!(module instanceof SoundFinder) && !(module instanceof ActivityLog)) assertTrue(module.settings().size() <= 6, module.name());
             JsonObject values = new JsonObject();
             module.settings().forEach(s -> {
                 assertNotEquals(s.label(), s.tooltip(), module.name() + ": " + s.label());

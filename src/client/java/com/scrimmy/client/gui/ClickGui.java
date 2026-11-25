@@ -342,7 +342,17 @@ public final class ClickGui extends Screen {
         float hover = motion(visual.hover, hovered ? 1 : 0);
         if (hovered) tooltip = setting.tooltip();
         if (hover > 0.01f) rounded(g, x, y + 1, w, h - 2, 5, ((int)(22 * hover) << 24) | 0xffffff);
-        if (setting instanceof GroupSetting group) {
+        if (setting instanceof com.scrimmy.client.module.basefinding.ChunkFinderV2.RankedSetting ranks) {
+            var rows = ranks.module.visible();
+            drawClipped(g, "Best chunks", x + 5, y + 6, w - 10, drawnAccent);
+            if (rows.isEmpty()) drawClipped(g, "No scores above minimum", x + 5, y + 25, w - 10, MUTED);
+            for (int i = 0; i < Math.min(5, rows.size()); i++) {
+                var row = rows.get(i); int ry = y + 22 + i * 34;
+                rounded(g, x + 2, ry, w - 4, 31, 5, 0x335f7c91);
+                drawClipped(g, row.x() + ", " + row.z() + "  " + Math.round(row.score()) + "/100", x + 6, ry + 3, w - 12, TEXT);
+                drawClipped(g, "Send to DrillTrail", x + 6, ry + 17, w - 12, drawnAccent);
+            }
+        } else if (setting instanceof GroupSetting group) {
             rounded(g, x, y + 3, w, SETTING - 6, 5, 0x335f7c91);
             drawClipped(g, group.label(), x + 6, y + 12, w - 24, drawnAccent);
             draw(g, group.get() ? "-" : "+", x + w - 15, y + 12, MUTED);
@@ -535,7 +545,12 @@ public final class ClickGui extends Screen {
 
     private void settingClick(Panel p, Setting<?> setting, int x, int y, int w, float mx, float my, int button) {
         if (button != 0) return;
-        if (setting instanceof GroupSetting group) group.toggle();
+        if (setting instanceof com.scrimmy.client.module.basefinding.ChunkFinderV2.RankedSetting ranks) {
+            int row = (int)(my - y - 22) / 34;
+            var rows = ranks.module.visible();
+            if (my >= y + 22 && row >= 0 && row < Math.min(5, rows.size())) ranks.module.sendToDrillTrail(rows.get(row));
+        }
+        else if (setting instanceof GroupSetting group) group.toggle();
         else if (setting instanceof ActionSetting action) action.run();
         else if (setting instanceof BooleanSetting bool) bool.toggle();
         else if (setting instanceof ModeSetting mode) {
@@ -706,6 +721,8 @@ public final class ClickGui extends Screen {
     }
     private int settingHeight(Setting<?> setting) {
         int height = SETTING;
+        if (setting instanceof com.scrimmy.client.module.basefinding.ChunkFinderV2.RankedSetting ranks)
+            height = 22 + Math.max(1, Math.min(5, ranks.module.visible().size())) * 34;
         float expansion = clamp(controls.get(setting).expansion.value(), 0, 1);
         if (setting instanceof ColorSetting) height = COLOR;
         else if (setting instanceof BlockListSetting blocks) height += Math.round((26 + blocks.get().size() * 20 + (blocks.get().isEmpty() ? 0 : COLOR)) * expansion);

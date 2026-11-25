@@ -28,5 +28,7 @@ abstract class LevelChunkMixin {
         DrillTrail drillTrail = ScrimmyClient.MODULES.find(DrillTrail.class);
         if (drillTrail != null && drillTrail.scanner != null)
             drillTrail.scanner.changed(level, pos.getX() >> 4, pos.getZ() >> 4);
+        var v2 = ScrimmyClient.MODULES.find(com.scrimmy.client.module.basefinding.ChunkFinderV2.class);
+        if (v2 != null && v2.enabled()) v2.changed(level, pos.getX() >> 4, pos.getZ() >> 4);
     }
 }

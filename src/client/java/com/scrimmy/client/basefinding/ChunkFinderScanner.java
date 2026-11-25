@@ -28,7 +28,16 @@ import java.util.concurrent.*;
 public final class ChunkFinderScanner implements AutoCloseable {
     public static final long SNAPSHOT_BUDGET_NANOS = 1_000_000;
     public static final int SCAN_REFRESH_TICKS = 200, DISCOVERY_PER_TICK = 8;
-    private final Basefinding module;
+    /** Independent consumers share the detector without enabling the original module. */
+    public interface Consumer {
+        boolean active();
+        int radius();
+        void accept(int x, int z, List<Geode> geodes);
+        void unloaded(long key);
+        void error(String message, Throwable error);
+        default boolean periodicRefresh() { return false; }
+    }
+    private final Consumer module;
     private final ExecutorService worker =
             Executors.newSingleThreadExecutor(
                     r -> {
@@ -50,6 +59,17 @@ public final class ChunkFinderScanner implements AutoCloseable {
     private int discoverX, discoverZ, directionX, directionZ = -1;
 
     public ChunkFinderScanner(Basefinding module) {
+        this(new Consumer() {
+            public boolean active() { return module.active(); }
+            public int radius() { return module.range.get().intValue() + BaseLikelihood.LOADED_RADIUS; }
+            public void accept(int x, int z, List<Geode> found) { module.accept(x, z, found); }
+            public void unloaded(long key) { module.unloaded(key); }
+            public void error(String message, Throwable error) { module.error(message, error); }
+            public boolean periodicRefresh() { return true; }
+        });
+    }
+
+    public ChunkFinderScanner(Consumer module) {
         this.module = module;
     }
 
@@ -150,7 +170,7 @@ public final class ChunkFinderScanner implements AutoCloseable {
             submitted = null;
         }
         int cx = mc.player.blockPosition().getX() >> 4, cz = mc.player.blockPosition().getZ() >> 4;
-        int r = Math.min(module.range.get().intValue() + BaseLikelihood.LOADED_RADIUS, mc.options.renderDistance().get() + 1);
+        int r = Math.min(module.radius(), mc.options.renderDistance().get() + 1);
         if (cx != centerX || cz != centerZ || r != range) {
             centerX = cx;
             centerZ = cz;
@@ -190,7 +210,7 @@ public final class ChunkFinderScanner implements AutoCloseable {
             LevelChunk found = chunk(x, z);
             if (found != null && !known.contains(found.getPos().toLong())) load(world, found);
         }
-        if (++ticks % SCAN_REFRESH_TICKS == 0) for (long key : known) dirty.add(key);
+        if (++ticks % SCAN_REFRESH_TICKS == 0 && module.periodicRefresh()) for (long key : known) dirty.add(key);
         if (task != null) return;
         while (System.nanoTime() < deadline) {
             if (snapshot == null) {

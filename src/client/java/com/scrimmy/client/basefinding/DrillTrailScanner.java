@@ -20,7 +20,14 @@ import static com.scrimmy.client.trail.TunnelAnalysis.*;
 public final class DrillTrailScanner implements AutoCloseable {
     public static final long MIN_BUDGET_NANOS = 200_000, MAX_BUDGET_NANOS = 2_000_000;
     public static final int HALO = MAX_GAP + 2, COPY_SLICE = 1024, DISCOVER_PER_TICK = 8;
-    private final DrillTrail module;
+    public interface Consumer {
+        boolean enabled();
+        double rangeBlocks();
+        boolean smart();
+        void accept(TunnelAnalysis.Chunk chunk);
+        void error(String message, Throwable error);
+    }
+    private final Consumer module;
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
         Thread thread = new Thread(r, "Scrimmy DrillTrail scan"); thread.setDaemon(true); return thread;
     });
@@ -36,7 +43,16 @@ public final class DrillTrailScanner implements AutoCloseable {
     private long revision;
     private int centerX = Integer.MIN_VALUE, centerZ, range, discovery, walkX, walkZ, dx, dz = -1;
 
-    public DrillTrailScanner(DrillTrail module) { this.module = module; }
+    public DrillTrailScanner(DrillTrail module) {
+        this(new Consumer() {
+            public boolean enabled() { return module.enabled(); }
+            public double rangeBlocks() { return module.range.get(); }
+            public boolean smart() { return module.smart(); }
+            public void accept(TunnelAnalysis.Chunk chunk) { module.accept(chunk); }
+            public void error(String message, Throwable error) { module.error(message, error); }
+        });
+    }
+    public DrillTrailScanner(Consumer module) { this.module = module; }
     public void initialize() {
         for (Block block : BuiltInRegistries.BLOCK) for (BlockState state : block.getStateDefinition().getPossibleStates()) {
             byte kind = state.isAir() ? AIR : state.is(Blocks.LAVA) ? LAVA : state.is(Blocks.WATER) ? WATER
@@ -95,7 +111,7 @@ public final class DrillTrailScanner implements AutoCloseable {
             task = null; submitted = null;
         }
         int cx = mc.player.blockPosition().getX() >> 4, cz = mc.player.blockPosition().getZ() >> 4;
-        int r = Math.min(mc.options.renderDistance().get() + 1, (int)Math.ceil(module.range.get() / 16));
+        int r = Math.min(mc.options.renderDistance().get() + 1, (int)Math.ceil(module.rangeBlocks() / 16));
         if (cx != centerX || cz != centerZ || r != range) {
             centerX = cx; centerZ = cz; range = r; discovery = walkX = walkZ = dx = 0; dz = -1;
             var keys = known.iterator();
