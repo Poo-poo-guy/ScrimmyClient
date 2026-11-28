@@ -17,7 +17,8 @@ class ModuleSettingsTest {
             Module module = source.all().get(i), restored = target.all().get(i);
             // V2 needs independently weighted features; tuning stays in collapsed groups.
             if (module instanceof ChunkFinderV2) assertTrue(module.settings().size() <= 21, module.name());
-            else if (!(module instanceof SoundFinder) && !(module instanceof ActivityLog)) assertTrue(module.settings().size() <= 6, module.name());
+            else if (!(module instanceof SoundFinder) && !(module instanceof ActivityLog))
+                assertTrue(module.settings().size() <= (module instanceof BlockESPModule ? 7 : 6), module.name());
             JsonObject values = new JsonObject();
             module.settings().forEach(s -> {
                 assertNotEquals(s.label(), s.tooltip(), module.name() + ": " + s.label());

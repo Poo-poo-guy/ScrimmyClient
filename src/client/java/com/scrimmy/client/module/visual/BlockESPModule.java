@@ -23,7 +23,7 @@ public final class BlockESPModule extends Module {
     private static final int[] DEFAULTS = {0xff55b88a, 0xff82bea0, 0xffbc8e76, 0xffbb859f, 0xff9586c4, 0xff7bb7ab, 0xffa18ac4};
     public final MultiSelectSetting groups;
     public final BlockListSetting custom;
-    public final NumberSetting range;
+    public final NumberSetting range, maxBlocks;
     public final BooleanSetting throughWalls, tracers;
     public final ModeSetting mode;
     public static final int MAX_BLOCKS = 512;
@@ -52,12 +52,14 @@ public final class BlockESPModule extends Module {
                 java.util.List.of("Storage", "Ancient Debris", "Spawners"), true, GROUPS));
         custom = add(new BlockListSetting("customBlocks", "Extra blocks", BlockESPModule::validBlock));
         range = n("range", "Range", 96, 16, 256, 8);
+        maxBlocks = n("maxBlocks", "Max drawn blocks", MAX_BLOCKS, 64, BlockEspCache.MAX_RENDERED, 64);
         mode = m("mode", "Style", "Outline + Fill", "Outline", "Fill", "Outline + Fill");
         throughWalls = b("throughWalls", "Through walls", true);
         tracers = b("tracersEnabled", "Tracers", false);
         groups.tooltip("Choose the kinds of blocks to highlight.");
         custom.tooltip("Add individual blocks to highlight.");
-        range.tooltip("Look for blocks within this many blocks of you.");
+        range.tooltip("Draw highlights within this many blocks of you; loaded blocks stay remembered.");
+        maxBlocks.tooltip("Limit drawn highlights to keep rendering fast.");
         mode.tooltip("Draw outlines, filled boxes, or both.");
         throughWalls.tooltip("Show highlights behind solid blocks.");
         tracers.tooltip("Draw a line toward nearby highlighted blocks.");
@@ -69,7 +71,10 @@ public final class BlockESPModule extends Module {
     private NumberSetting n(String key, String label, double value, double min, double max, double step) { return add(new NumberSetting(key, label, value, min, max, step)); }
     private BooleanSetting b(String key, String label, boolean value) { return add(new BooleanSetting(key, label, value)); }
     private ModeSetting m(String key, String label, String value, String... options) { return add(new ModeSetting(key, label, value, options)); }
-    @Override protected void onSettingChanged(Setting<?> setting) { if (!(setting instanceof GroupSetting)) settingsDirty = true; }
+    @Override protected void onSettingChanged(Setting<?> setting) {
+        if (setting == groups || setting == custom) settingsDirty = true;
+        if (setting == mode || setting == tracers || setting == custom) renderer.invalidate();
+    }
     private static int groupOf(String path) {
         if (path.equals("chest") || path.equals("trapped_chest") || path.equals("barrel") || path.equals("ender_chest") || path.equals("shulker_box") || path.endsWith("_shulker_box")) return 0;
         if (path.endsWith("_ore")) return 1;
@@ -90,8 +95,10 @@ public final class BlockESPModule extends Module {
             next.put(block, color);
         }
         boolean changed = !next.keySet().equals(colors.keySet());
+        boolean recolored = !next.equals(colors);
         colors.clear(); colors.putAll(next);
         if (changed) cache.rebuild();
+        if (recolored) renderer.invalidate();
         settingsDirty = false;
     }
     public boolean matches(Block block) { return colors.containsKey(block); }
