@@ -18,7 +18,7 @@ class ModuleSettingsTest {
             // V2 needs independently weighted features; tuning stays in collapsed groups.
             if (module instanceof ChunkFinderV2) assertTrue(module.settings().size() <= 21, module.name());
             else if (!(module instanceof SoundFinder) && !(module instanceof ActivityLog))
-                assertTrue(module.settings().size() <= (module instanceof BlockESPModule ? 7 : 6), module.name());
+                assertTrue(module.settings().size() <= (module instanceof BlockESPModule ? 8 : 6), module.name());
             JsonObject values = new JsonObject();
             module.settings().forEach(s -> {
                 assertNotEquals(s.label(), s.tooltip(), module.name() + ": " + s.label());
@@ -29,6 +29,16 @@ class ModuleSettingsTest {
             for (int j = 0; j < module.settings().size(); j++)
                 assertEquals(module.settings().get(j).get(), restored.settings().get(j).get(), module.name());
         }
+    }
+    @Test void tracerOriginDefaultsToCrosshairAndRestoresBothModes() {
+        BlockESPModule module = new BlockESPModule();
+        assertEquals("Crosshair", module.tracerOrigin.get());
+        module.tracerOrigin.set("Feet");
+        JsonObject values = new JsonObject(); SettingCodec.write(values, module.tracerOrigin);
+        BlockESPModule restored = new BlockESPModule(); SettingCodec.read(values, restored.tracerOrigin);
+        assertEquals("Feet", restored.tracerOrigin.get());
+        module.tracerOrigin.set("Crosshair"); SettingCodec.write(values, module.tracerOrigin);
+        SettingCodec.read(values, restored.tracerOrigin); assertEquals("Crosshair", restored.tracerOrigin.get());
     }
     @Test void legacyBlockSwitchesMergeIncludingAnExplicitlyEmptySelection() {
         BlockESPModule module = new BlockESPModule();

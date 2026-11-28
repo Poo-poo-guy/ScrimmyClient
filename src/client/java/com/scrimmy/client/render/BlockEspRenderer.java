@@ -1,6 +1,7 @@
 package com.scrimmy.client.render;
 
 import com.mojang.blaze3d.buffers.GpuBuffer;
+import com.mojang.blaze3d.buffers.GpuBufferSlice;
 import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.platform.DepthTestFunction;
@@ -17,14 +18,12 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.Identifier;
-import org.joml.FrustumIntersection;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.joml.Vector4f;
 import org.lwjgl.system.MemoryUtil;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.util.Arrays;
 import java.util.OptionalDouble;
 import java.util.OptionalInt;
 import java.util.function.Supplier;
@@ -47,14 +46,15 @@ public final class BlockEspRenderer implements AutoCloseable {
     private static final int[][] FACES = {{0,2,3,1},{4,5,7,6},{0,1,5,4},{2,6,7,3},{0,4,6,2},{1,3,7,5}};
     private static final Supplier<String> LABEL = () -> "Scrimmy BlockESP";
     private final BlockESPModule module;
-    private final Matrix4f view = new Matrix4f(), modelView = new Matrix4f(), culling = new Matrix4f(), parameters = new Matrix4f(), inverseView = new Matrix4f();
-    private final FrustumIntersection frustum = new FrustumIntersection();
+    private final BlockEspCamera frame = new BlockEspCamera();
+    private final Matrix4f parameters = new Matrix4f();
     private final Vector4f viewport = new Vector4f();
-    private final Vector3f zero = new Vector3f(), forward = new Vector3f();
+    private final Vector3f zero = new Vector3f();
     private final long[] order = new long[BlockEspCache.MAX_RENDERED * 2];
     private final float[] corners = new float[24];
-    private ByteBuffer bytes;
-    private GpuBuffer gpu;
+    private ByteBuffer bytes, projectionBytes;
+    private GpuBuffer gpu, projectionGpu;
+    private GpuBufferSlice projectionSlice;
     private int vertices, count, blockVertices, boxIndices, originX, originY, originZ;
     private long revision = Long.MIN_VALUE;
     private boolean dirty = true, upload, throughWalls;
@@ -69,7 +69,7 @@ public final class BlockEspRenderer implements AutoCloseable {
             .withLocation(Identifier.fromNamespaceAndPath("scrimmyclient", "pipeline/block_esp_retained_" + i))
             .withVertexShader(Identifier.fromNamespaceAndPath("scrimmyclient", "core/block_esp_retained"))
             .withFragmentShader(Identifier.fromNamespaceAndPath("scrimmyclient", "core/block_esp"))
-            .withUniform("DynamicTransforms", UniformType.UNIFORM_BUFFER).withUniform("Projection", UniformType.UNIFORM_BUFFER)
+            .withUniform("DynamicTransforms", UniformType.UNIFORM_BUFFER).withUniform("BlockEspProjection", UniformType.UNIFORM_BUFFER)
             .withVertexFormat(FORMAT, VertexFormat.Mode.QUADS).withCull(false).withDepthWrite(false)
             .withDepthTestFunction(depth[i]).withBlend(BlendFunction.TRANSLUCENT).build());
         return result;
@@ -80,37 +80,24 @@ public final class BlockEspRenderer implements AutoCloseable {
         if (!module.enabled() || module.cache.world() != mc.level || mc.level == null || mc.player == null) return;
         var camera = context.worldState().cameraRenderState;
         double cx = camera.pos.x, cy = camera.pos.y, cz = camera.pos.z;
-        double partial = context.tickCounter().getGameTimeDeltaPartialTick(false);
-        double px = mc.player.xo + (mc.player.getX() - mc.player.xo) * partial;
-        double py = mc.player.yo + (mc.player.getY() - mc.player.yo) * partial;
-        double pz = mc.player.zo + (mc.player.getZ() - mc.player.zo) * partial;
+        float partial = context.camera().getPartialTickTime();
+        double px = BlockEspCamera.interpolate(mc.player.xo, mc.player.getX(), partial);
+        double py = BlockEspCamera.interpolate(mc.player.yo, mc.player.getY(), partial);
+        double pz = BlockEspCamera.interpolate(mc.player.zo, mc.player.getZ(), partial);
         if (dirty || revision != module.cache.renderRevision()) rebuild(px, py, pz);
-        view.set(context.viewMatrix()); culling.set(context.cullProjectionMatrix()).mul(view); frustum.set(culling);
-        modelView.set(view).translate((float)(originX - cx), (float)(originY - cy), (float)(originZ - cz));
-        inverseView.set(view).invert().transformPosition(forward.set(0, 0, -.15f));
+        frame.update(camera.orientation, cx, cy, cz, px, py, pz, originX, originY, originZ, module.tracerOrigin.get().equals("Feet"));
         throughWalls = module.throughWalls.get();
         double range = module.range.get();
         float now = module.cache.seconds();
         // TextureMat is unused for texturing here and carries shader-only animation/distance data.
         parameters.zero().setColumn(0, viewport.set((float)(px-originX), (float)(py-originY), (float)(pz-originZ), (float)range))
             .setColumn(1, viewport.set((float)(cx-originX), (float)(cy-originY), (float)(cz-originZ), now))
-            .setColumn(2, viewport.set(forward.x, forward.y, forward.z, (float)BlockESPModule.DISTANCE_FADE))
+            .setColumn(2, viewport.set(frame.tracerStart.x, frame.tracerStart.y, frame.tracerStart.z, (float)BlockESPModule.DISTANCE_FADE))
             .setColumn(3, viewport.set((float)(4 / BlockESPModule.FADE_TIME), BlockESPModule.PULSE ? (float)BlockESPModule.PULSE_STRENGTH : 0,
-                (float)BlockESPModule.PULSE_SPEED, 0));
-        // Only the bounded draw set is culled. This path never mutates knowledge or visual lifetimes.
-        for (int i = 0; i < module.cache.size(); i++) {
-            BlockEspCache.Visual visual = module.cache.visual(i);
-            long pos = visual.entry.pos;
-            double x = BlockPos.getX(pos) + .5 - cx, y = BlockPos.getY(pos) + .5 - cy, z = BlockPos.getZ(pos) + .5 - cz;
-            double dx = BlockPos.getX(pos) + .5 - px, dy = BlockPos.getY(pos) + .5 - py, dz = BlockPos.getZ(pos) + .5 - pz;
-            double distance = dx*dx + dy*dy + dz*dz;
-            if (distance <= range*range && visual.opacity(now) >= .002 &&
-                    frustum.testAab((float)x-.51f, (float)y-.51f, (float)z-.51f, (float)x+.51f, (float)y+.51f, (float)z+.51f))
-                order[count++] = ((long)Float.floatToRawIntBits((float)distance) << 32) | (module.cache.size() - 1 - i);
-        }
-        Arrays.sort(order, 0, count);
-        count = Math.min(count, module.maxBlocks.get().intValue());
+                (float)BlockESPModule.PULSE_SPEED, module.tracerOrigin.get().equals("Feet") ? 1 : 0));
+        count = BlockEspDrawList.select(module.cache, px, py, pz, range, module.maxBlocks.get().intValue(), order);
     }
+
     private void rebuild(double px, double py, double pz) {
         // A stable local origin retains float precision even near the world border.
         originX = (int)Math.floor(px); originY = (int)Math.floor(py); originZ = (int)Math.floor(pz);
@@ -142,7 +129,7 @@ public final class BlockEspRenderer implements AutoCloseable {
                 int a = edge[0]*3, b = edge[1]*3;
                 line(corners[a], corners[a+1], corners[a+2], corners[b], corners[b+1], corners[b+2], color, (float)BlockESPModule.THICKNESS, 1000);
             }
-            // The shader anchors one end to the moving crosshair and clips at the near plane.
+            // Only endpoints are cached; the shader uses the current frame's steady origin.
             if (module.tracers.get()) line(x+.5f, y+.5f, z+.5f, x+.5f, y+.5f, z+.5f,
                 alpha(color, BlockESPModule.TRACER_OPACITY), (float)BlockESPModule.TRACER_WIDTH, 2000);
         }
@@ -176,21 +163,31 @@ public final class BlockEspRenderer implements AutoCloseable {
             }
             encoder.writeToBuffer(gpu.slice(0, bytes.remaining()), bytes); bytes.rewind(); upload = false;
         }
+        if (projectionBytes == null) {
+            projectionBytes = MemoryUtil.memAlloc(64).order(ByteOrder.nativeOrder());
+            projectionGpu = RenderSystem.getDevice().createBuffer(LABEL, GpuBuffer.USAGE_UNIFORM | GpuBuffer.USAGE_COPY_DST, 64);
+            projectionSlice = projectionGpu.slice();
+        }
+        projectionBytes.clear(); frame.projection.get(0, projectionBytes);
+        encoder.writeToBuffer(projectionSlice, projectionBytes); projectionBytes.rewind();
         var sequential = RenderSystem.getSequentialBuffer(VertexFormat.Mode.QUADS);
         var indices = sequential.getBuffer(vertices / 4 * 6);
         var target = Minecraft.getInstance().getMainRenderTarget();
         viewport.set(target.width, target.height, 1, 1);
-        var normal = RenderSystem.getDynamicUniforms().writeTransform(modelView, viewport, zero, parameters);
+        var normal = RenderSystem.getDynamicUniforms().writeTransform(frame.modelView, viewport, zero, parameters);
         viewport.z = (float)BlockESPModule.HIDDEN_OPACITY;
-        var hidden = RenderSystem.getDynamicUniforms().writeTransform(modelView, viewport, zero, parameters);
+        var hidden = RenderSystem.getDynamicUniforms().writeTransform(frame.modelView, viewport, zero, parameters);
         try (var pass = encoder.createRenderPass(LABEL, target.getColorTextureView(), OptionalInt.empty(), target.getDepthTextureView(), OptionalDouble.empty())) {
-            pass.setPipeline(PIPELINES[throughWalls && !BlockESPModule.DIM_OCCLUDED ? 1 : 0]);
+            pass.setPipeline(PIPELINES[throughWalls && BlockESPModule.DIM_OCCLUDED ? 0 : 1]);
             RenderSystem.bindDefaultUniforms(pass);
+            pass.setUniform("BlockEspProjection", projectionSlice);
             pass.setVertexBuffer(0, gpu); pass.setIndexBuffer(indices, sequential.type());
+            // The two depth passes partition ALL pixels and only change opacity.
+            // The legacy toggle can disable dimming, never hide cached highlights.
             if (throughWalls && BlockESPModule.DIM_OCCLUDED) {
                 pass.setPipeline(PIPELINES[2]); pass.setUniform("DynamicTransforms", hidden); drawRanges(pass);
             }
-            pass.setPipeline(PIPELINES[throughWalls && !BlockESPModule.DIM_OCCLUDED ? 1 : 0]);
+            pass.setPipeline(PIPELINES[throughWalls && BlockESPModule.DIM_OCCLUDED ? 0 : 1]);
             pass.setUniform("DynamicTransforms", normal); drawRanges(pass);
         }
     }
@@ -213,6 +210,8 @@ public final class BlockEspRenderer implements AutoCloseable {
     @Override public void close() {
         count = vertices = 0; dirty = true; revision = Long.MIN_VALUE;
         if (gpu != null) gpu.close(); gpu = null;
+        if (projectionGpu != null) projectionGpu.close(); projectionGpu = null; projectionSlice = null;
+        if (projectionBytes != null) MemoryUtil.memFree(projectionBytes); projectionBytes = null;
         if (bytes != null) MemoryUtil.memFree(bytes); bytes = null;
     }
 }

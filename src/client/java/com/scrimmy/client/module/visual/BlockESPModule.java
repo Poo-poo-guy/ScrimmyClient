@@ -25,7 +25,7 @@ public final class BlockESPModule extends Module {
     public final BlockListSetting custom;
     public final NumberSetting range, maxBlocks;
     public final BooleanSetting throughWalls, tracers;
-    public final ModeSetting mode;
+    public final ModeSetting mode, tracerOrigin;
     public static final int MAX_BLOCKS = 512;
     public static final double SCAN_SPEED = 1;
     public static final double THICKNESS = 1.5;
@@ -37,7 +37,6 @@ public final class BlockESPModule extends Module {
     public static final double PULSE_SPEED = .5;
     public static final boolean DIM_OCCLUDED = true;
     public static final boolean PULSE = false;
-    public static final boolean HIDE_TARGET = false;
     public static final double TRACER_OPACITY = .45;
     public static final int MAX_TRACERS = 32;
     public static final double TRACER_WIDTH = 1;
@@ -56,13 +55,15 @@ public final class BlockESPModule extends Module {
         mode = m("mode", "Style", "Outline + Fill", "Outline", "Fill", "Outline + Fill");
         throughWalls = b("throughWalls", "Through walls", true);
         tracers = b("tracersEnabled", "Tracers", false);
+        tracerOrigin = m("tracerOrigin", "Tracer origin", "Crosshair", "Crosshair", "Feet");
         groups.tooltip("Choose the kinds of blocks to highlight.");
         custom.tooltip("Add individual blocks to highlight.");
         range.tooltip("Draw highlights within this many blocks of you; loaded blocks stay remembered.");
         maxBlocks.tooltip("Limit drawn highlights to keep rendering fast.");
         mode.tooltip("Draw outlines, filled boxes, or both.");
-        throughWalls.tooltip("Show highlights behind solid blocks.");
+        throughWalls.tooltip("Dim highlights behind solid blocks; remembered blocks always remain visible.");
         tracers.tooltip("Draw a line toward nearby highlighted blocks.");
+        tracerOrigin.tooltip("Start steady tracers at the crosshair or your interpolated feet.");
     }
     private static boolean validBlock(String id) {
         Identifier key = Identifier.tryParse(id);
