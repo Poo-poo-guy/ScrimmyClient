@@ -1,6 +1,7 @@
 package com.scrimmy.client.esp;
 
 import com.scrimmy.client.module.visual.BlockESPModule;
+import com.scrimmy.client.render.BlockEspDrawList;
 import net.minecraft.SharedConstants;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.core.BlockPos;
@@ -118,6 +119,58 @@ class BlockEspCacheTest {
         assertTrue(visual.wanted);
         cache.removeVisual(0);
         assertTrue(cache.renderRevision() > revision);
+    }
+
+    @Test void drawSelectionAndGeometryStayIdenticalThroughoutACompleteTurn() throws Exception {
+        BlockEspCache cache = new BlockESPModule().cache;
+        Object chunk = chunk(cache, 0, 0), validity = field(chunk, "validity");
+        Field cap = BlockEspCache.class.getDeclaredField("selectionCap"); cap.setAccessible(true); cap.setInt(cache, 64);
+        for (int x = -3; x <= 3; x++) for (int z = -3; z <= 3; z++) {
+            long pos = BlockPos.asLong(x, 64, z);
+            invoke(cache, "offer", new Class<?>[]{long.class, Block.class, validity.getClass(), double.class}, pos, Blocks.CHEST, validity, (double)x*x+z*z);
+        }
+        invoke(cache, "publish", new Class<?>[]{});
+        long revision = cache.renderRevision();
+        long[] expected = new long[cache.size()], actual = new long[cache.size()];
+        assertEquals(49, BlockEspDrawList.select(cache, .5, 64.5, .5, 16, 64, expected));
+        // The actual selection function deliberately takes no camera/visibility argument.
+        for (int yaw = 0; yaw <= 360; yaw++) {
+            assertEquals(49, BlockEspDrawList.select(cache, .5, 64.5, .5, 16, 64, actual));
+            assertArrayEquals(expected, actual); assertEquals(revision, cache.renderRevision());
+        }
+        assertEquals(4, BlockEspDrawList.select(cache, .5, 64.5, .5, 16, 4, actual));
+        assertArrayEquals(java.util.Arrays.copyOf(expected, 4), java.util.Arrays.copyOf(actual, 4));
+        assertEquals(1, BlockEspDrawList.select(cache, .5, 64.5, .5, .75, 64, actual));
+    }
+
+    @Test void steadyFrameHelpersDoNotAllocateScratchObjects() throws Exception {
+        var raw = java.lang.management.ManagementFactory.getThreadMXBean();
+        org.junit.jupiter.api.Assumptions.assumeTrue(raw instanceof com.sun.management.ThreadMXBean);
+        var bean = (com.sun.management.ThreadMXBean)raw;
+        org.junit.jupiter.api.Assumptions.assumeTrue(bean.isThreadAllocatedMemorySupported());
+        bean.setThreadAllocatedMemoryEnabled(true);
+        BlockESPModule module = new BlockESPModule(); module.maxBlocks.set(2048.0);
+        BlockEspCache cache = module.cache;
+        Object chunk = chunk(cache, 0, 0), validity = field(chunk, "validity");
+        Field cap = BlockEspCache.class.getDeclaredField("selectionCap"); cap.setAccessible(true); cap.setInt(cache, 2048);
+        for (int i = 0; i < 2048; i++) invoke(cache, "offer",
+            new Class<?>[]{long.class, Block.class, validity.getClass(), double.class},
+            BlockPos.asLong(i & 31, 64+(i >> 10), (i >> 5) & 31), Blocks.CHEST, validity, (double)i);
+        invoke(cache, "publish", new Class<?>[]{});
+        long[] order = new long[4096];
+        var frame = new com.scrimmy.client.render.BlockEspCamera();
+        var orientation = new org.joml.Quaternionf();
+        for (int i = 0; i < 12000; i++) {
+            BlockEspDrawList.select(cache, 16, 64, 16, 96, 2048, order);
+            frame.update(orientation, .5, 65.62, .5, .5, 64, .5, 0, 64, 0, (i & 1) == 0);
+        }
+        long thread = Thread.currentThread().threadId(), before = bean.getThreadAllocatedBytes(thread);
+        for (int i = 0; i < 1000; i++) {
+            BlockEspDrawList.select(cache, 16, 64, 16, 96, 2048, order);
+            frame.update(orientation, .5, 65.62, .5, .5, 64, .5, 0, 64, 0, (i & 1) == 0);
+        }
+        long allocated = bean.getThreadAllocatedBytes(thread) - before;
+        assertEquals(0, allocated, "Stable draw selection and camera transforms must reuse their scratch storage");
     }
 
     @Test void bitCursorCrossesWordsAndStopsAtSectionBoundary() {

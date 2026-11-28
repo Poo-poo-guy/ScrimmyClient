@@ -11,6 +11,7 @@
     "CameraMixin",
     "MouseHandlerMixin",
     "GameRendererMixin",
+    "BlockEspGameRendererMixin",
     "MinecraftMixin",
     "LevelRendererMixin",
     "EditBoxMixin",
