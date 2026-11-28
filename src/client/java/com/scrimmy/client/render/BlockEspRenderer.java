@@ -5,6 +5,7 @@ import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.platform.DepthTestFunction;
 import com.mojang.blaze3d.shaders.UniformType;
+import com.mojang.blaze3d.systems.RenderPass;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import com.mojang.blaze3d.vertex.VertexFormatElement;
@@ -13,12 +14,9 @@ import com.scrimmy.client.module.visual.BlockESPModule;
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldExtractionContext;
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.MappableRingBuffer;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.Identifier;
-import net.minecraft.world.phys.BlockHitResult;
-import net.minecraft.world.phys.HitResult;
 import org.joml.FrustumIntersection;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
@@ -29,36 +27,47 @@ import java.nio.ByteOrder;
 import java.util.Arrays;
 import java.util.OptionalDouble;
 import java.util.OptionalInt;
+import java.util.function.Supplier;
 
-/** Reuses the particle renderer's extraction/ring-buffer approach, with screen-width AA ribbons. */
+/** Retained block-local geometry. Camera motion changes uniforms/draw ranges, never vertices. */
 public final class BlockEspRenderer implements AutoCloseable {
+    private static VertexFormatElement animationElement() {
+        // This is a client GPU attribute, not a Minecraft/synced registry entry.
+        for (int id = 0; id < VertexFormatElement.MAX_COUNT; id++)
+            if (VertexFormatElement.byId(id) == null)
+                return VertexFormatElement.register(id, 0, VertexFormatElement.Type.FLOAT, VertexFormatElement.Usage.GENERIC, 3);
+        throw new IllegalStateException("No vertex attribute available for BlockESP");
+    }
     private static final VertexFormat FORMAT = VertexFormat.builder()
         .add("Position", VertexFormatElement.POSITION).add("Color", VertexFormatElement.COLOR)
-        .add("UV0", VertexFormatElement.UV0).add("UV1", VertexFormatElement.UV1).add("UV2", VertexFormatElement.UV2).build();
+        .add("UV0", VertexFormatElement.UV0).add("UV1", VertexFormatElement.UV1).add("UV2", VertexFormatElement.UV2)
+        .add("Animation", animationElement()).add("Normal", VertexFormatElement.NORMAL).padding(1).build();
     private static final RenderPipeline[] PIPELINES = pipelines();
     private static final int[][] EDGES = {{0,1},{2,3},{4,5},{6,7},{0,2},{1,3},{4,6},{5,7},{0,4},{1,5},{2,6},{3,7}};
     private static final int[][] FACES = {{0,2,3,1},{4,5,7,6},{0,1,5,4},{2,6,7,3},{0,4,6,2},{1,3,7,5}};
+    private static final Supplier<String> LABEL = () -> "Scrimmy BlockESP";
     private final BlockESPModule module;
-    private final Matrix4f view = new Matrix4f(), culling = new Matrix4f(), identity = new Matrix4f(), inverseView = new Matrix4f();
+    private final Matrix4f view = new Matrix4f(), modelView = new Matrix4f(), culling = new Matrix4f(), parameters = new Matrix4f(), inverseView = new Matrix4f();
     private final FrustumIntersection frustum = new FrustumIntersection();
     private final Vector4f viewport = new Vector4f();
     private final Vector3f zero = new Vector3f(), forward = new Vector3f();
     private final long[] order = new long[BlockEspCache.MAX_RENDERED * 2];
     private final float[] corners = new float[24];
     private ByteBuffer bytes;
-    private MappableRingBuffer gpu;
-    private int vertices;
-    private boolean throughWalls, dimOccluded;
-    private float hiddenOpacity;
-    private long lastFrame;
+    private GpuBuffer gpu;
+    private int vertices, count, blockVertices, boxIndices, originX, originY, originZ;
+    private long revision = Long.MIN_VALUE;
+    private boolean dirty = true, upload, throughWalls;
+    private float animationAlpha, animationTime, animationTarget;
 
     public BlockEspRenderer(BlockESPModule module) { this.module = module; }
+    public void invalidate() { dirty = true; }
     private static RenderPipeline[] pipelines() {
         RenderPipeline[] result = new RenderPipeline[3];
         DepthTestFunction[] depth = {DepthTestFunction.LEQUAL_DEPTH_TEST, DepthTestFunction.NO_DEPTH_TEST, DepthTestFunction.GREATER_DEPTH_TEST};
         for (int i = 0; i < result.length; i++) result[i] = RenderPipelines.register(RenderPipeline.builder()
-            .withLocation(Identifier.fromNamespaceAndPath("scrimmyclient", "pipeline/block_esp_" + i))
-            .withVertexShader(Identifier.fromNamespaceAndPath("scrimmyclient", "core/block_esp"))
+            .withLocation(Identifier.fromNamespaceAndPath("scrimmyclient", "pipeline/block_esp_retained_" + i))
+            .withVertexShader(Identifier.fromNamespaceAndPath("scrimmyclient", "core/block_esp_retained"))
             .withFragmentShader(Identifier.fromNamespaceAndPath("scrimmyclient", "core/block_esp"))
             .withUniform("DynamicTransforms", UniformType.UNIFORM_BUFFER).withUniform("Projection", UniformType.UNIFORM_BUFFER)
             .withVertexFormat(FORMAT, VertexFormat.Mode.QUADS).withCull(false).withDepthWrite(false)
@@ -66,93 +75,84 @@ public final class BlockEspRenderer implements AutoCloseable {
         return result;
     }
     public void extract(WorldExtractionContext context) {
-        vertices = 0;
+        count = 0;
         Minecraft mc = Minecraft.getInstance();
         if (!module.enabled() || module.cache.world() != mc.level || mc.level == null || mc.player == null) return;
-        long now = System.nanoTime();
-        double dt = lastFrame == 0 ? 1.0 / 60 : Math.min(.25, (now - lastFrame) / 1_000_000_000.0);
-        lastFrame = now;
         var camera = context.worldState().cameraRenderState;
         double cx = camera.pos.x, cy = camera.pos.y, cz = camera.pos.z;
         double partial = context.tickCounter().getGameTimeDeltaPartialTick(false);
         double px = mc.player.xo + (mc.player.getX() - mc.player.xo) * partial;
         double py = mc.player.yo + (mc.player.getY() - mc.player.yo) * partial;
         double pz = mc.player.zo + (mc.player.getZ() - mc.player.zo) * partial;
+        if (dirty || revision != module.cache.renderRevision()) rebuild(px, py, pz);
         view.set(context.viewMatrix()); culling.set(context.cullProjectionMatrix()).mul(view); frustum.set(culling);
+        modelView.set(view).translate((float)(originX - cx), (float)(originY - cy), (float)(originZ - cz));
         inverseView.set(view).invert().transformPosition(forward.set(0, 0, -.15f));
-        throughWalls = module.throughWalls.get(); dimOccluded = BlockESPModule.DIM_OCCLUDED; hiddenOpacity = (float) BlockESPModule.HIDDEN_OPACITY;
-        long target = 0;
-        boolean hide = BlockESPModule.HIDE_TARGET && mc.hitResult instanceof BlockHitResult hit && hit.getType() == HitResult.Type.BLOCK;
-        if (hide) target = ((BlockHitResult)mc.hitResult).getBlockPos().asLong();
-        double range = module.range.get(), blend = 1 - Math.exp(-dt * 4 / BlockESPModule.FADE_TIME);
-        int count = 0;
-        for (int i = 0; i < module.cache.size();) {
+        throughWalls = module.throughWalls.get();
+        double range = module.range.get();
+        float now = module.cache.seconds();
+        // TextureMat is unused for texturing here and carries shader-only animation/distance data.
+        parameters.zero().setColumn(0, viewport.set((float)(px-originX), (float)(py-originY), (float)(pz-originZ), (float)range))
+            .setColumn(1, viewport.set((float)(cx-originX), (float)(cy-originY), (float)(cz-originZ), now))
+            .setColumn(2, viewport.set(forward.x, forward.y, forward.z, (float)BlockESPModule.DISTANCE_FADE))
+            .setColumn(3, viewport.set((float)(4 / BlockESPModule.FADE_TIME), BlockESPModule.PULSE ? (float)BlockESPModule.PULSE_STRENGTH : 0,
+                (float)BlockESPModule.PULSE_SPEED, 0));
+        // Only the bounded draw set is culled. This path never mutates knowledge or visual lifetimes.
+        for (int i = 0; i < module.cache.size(); i++) {
             BlockEspCache.Visual visual = module.cache.visual(i);
             long pos = visual.entry.pos;
             double x = BlockPos.getX(pos) + .5 - cx, y = BlockPos.getY(pos) + .5 - cy, z = BlockPos.getZ(pos) + .5 - cz;
             double dx = BlockPos.getX(pos) + .5 - px, dy = BlockPos.getY(pos) + .5 - py, dz = BlockPos.getZ(pos) + .5 - pz;
             double distance = dx*dx + dy*dy + dz*dz;
-            boolean wanted = visual.wanted && visual.entry.alive() && distance <= range * range && !(hide && pos == target);
-            visual.alpha += ((wanted ? 1 : 0) - visual.alpha) * blend;
-            if (!visual.wanted || !visual.entry.alive()) {
-                if (visual.alpha < .002) { module.cache.removeVisual(i); continue; }
-            }
-            if (visual.alpha >= .002 && frustum.testAab((float)x-.51f, (float)y-.51f, (float)z-.51f, (float)x+.51f, (float)y+.51f, (float)z+.51f))
-                order[count++] = ((long)Float.floatToRawIntBits((float)distance) << 32) | i;
-            i++;
+            if (distance <= range*range && visual.opacity(now) >= .002 &&
+                    frustum.testAab((float)x-.51f, (float)y-.51f, (float)z-.51f, (float)x+.51f, (float)y+.51f, (float)z+.51f))
+                order[count++] = ((long)Float.floatToRawIntBits((float)distance) << 32) | (module.cache.size() - 1 - i);
         }
-        if (count == 0) return;
         Arrays.sort(order, 0, count);
-        count = Math.min(count, (int) BlockESPModule.MAX_BLOCKS);
-        ensure(count * 76 * FORMAT.getVertexSize());
+        count = Math.min(count, module.maxBlocks.get().intValue());
+    }
+    private void rebuild(double px, double py, double pz) {
+        // A stable local origin retains float precision even near the world border.
+        originX = (int)Math.floor(px); originY = (int)Math.floor(py); originZ = (int)Math.floor(pz);
         boolean fill = !module.mode.get().equals("Outline"), outline = !module.mode.get().equals("Fill");
-        double seconds = now / 1_000_000_000.0;
-        double pulse = BlockESPModule.PULSE ? 1 - BlockESPModule.PULSE_STRENGTH * (.5 + .5 * Math.sin(seconds * BlockESPModule.PULSE_SPEED * Math.PI * 2)) : 1;
-        // The capped nearest set is drawn far to near for stable translucent blending.
-        for (int j = count - 1; j >= 0; j--) {
-            BlockEspCache.Visual visual = module.cache.visual((int)order[j]);
+        blockVertices = (fill ? 24 : 0) + (outline ? 48 : 0) + (module.tracers.get() ? 4 : 0);
+        boxIndices = ((fill ? 24 : 0) + (outline ? 48 : 0)) / 4 * 6;
+        int required = module.cache.size() * blockVertices * FORMAT.getVertexSize();
+        if (bytes == null || bytes.capacity() < required) {
+            if (bytes != null) MemoryUtil.memFree(bytes);
+            bytes = MemoryUtil.memAlloc(Math.max(65536, Integer.highestOneBit(Math.max(1, required) - 1) << 1)).order(ByteOrder.nativeOrder());
+        }
+        bytes.clear(); vertices = 0;
+        for (int i = module.cache.size() - 1; i >= 0; i--) {
+            BlockEspCache.Visual visual = module.cache.visual(i);
             long pos = visual.entry.pos;
-            double x = BlockPos.getX(pos) - cx, y = BlockPos.getY(pos) - cy, z = BlockPos.getZ(pos) - cz;
-            double distance = Math.sqrt(Float.intBitsToFloat((int)(order[j] >>> 32)));
-            double opacity = visual.alpha * pulse * (1 - BlockESPModule.DISTANCE_FADE * Math.min(1, distance / range));
-            int color = alpha(module.color(visual.entry.block, seconds, distance), opacity);
+            float x = BlockPos.getX(pos) - originX, y = BlockPos.getY(pos) - originY, z = BlockPos.getZ(pos) - originZ;
+            animationAlpha = (float)visual.alpha; animationTime = visual.changedAt; animationTarget = visual.wanted ? 1 : 0;
+            int color = module.color(visual.entry.block, 0, 0);
             for (int v = 0; v < 8; v++) {
-                corners[v*3] = (float)(x + ((v & 1) == 0 ? -.002 : 1.002));
-                corners[v*3+1] = (float)(y + ((v & 2) == 0 ? -.002 : 1.002));
-                corners[v*3+2] = (float)(z + ((v & 4) == 0 ? -.002 : 1.002));
+                corners[v*3] = x + ((v & 1) == 0 ? -.002f : 1.002f);
+                corners[v*3+1] = y + ((v & 2) == 0 ? -.002f : 1.002f);
+                corners[v*3+2] = z + ((v & 4) == 0 ? -.002f : 1.002f);
             }
-            if (fill && BlockESPModule.FILL_OPACITY > 0) {
+            if (fill) {
                 int fillColor = alpha(color, BlockESPModule.FILL_OPACITY);
                 for (int[] face : FACES) for (int v : face) vertex(corners[v*3], corners[v*3+1], corners[v*3+2], fillColor, 0, 0, 0, 0, 0);
             }
             if (outline) for (int[] edge : EDGES) {
                 int a = edge[0]*3, b = edge[1]*3;
-                line(corners[a], corners[a+1], corners[a+2], corners[b], corners[b+1], corners[b+2], color, (float) BlockESPModule.THICKNESS);
+                line(corners[a], corners[a+1], corners[a+2], corners[b], corners[b+1], corners[b+2], color, (float)BlockESPModule.THICKNESS, 1000);
             }
-            if (module.tracers.get() && j < (int) BlockESPModule.MAX_TRACERS)
-                line(forward.x, forward.y, forward.z, (float)x+.5f, (float)y+.5f, (float)z+.5f, alpha(color, BlockESPModule.TRACER_OPACITY), (float) BlockESPModule.TRACER_WIDTH);
+            // The shader anchors one end to the moving crosshair and clips at the near plane.
+            if (module.tracers.get()) line(x+.5f, y+.5f, z+.5f, x+.5f, y+.5f, z+.5f,
+                alpha(color, BlockESPModule.TRACER_OPACITY), (float)BlockESPModule.TRACER_WIDTH, 2000);
         }
-        bytes.flip();
+        bytes.flip(); upload = true; dirty = false; revision = module.cache.renderRevision();
     }
-    private void ensure(int required) {
-        if (bytes != null && bytes.capacity() >= required) { bytes.clear(); return; }
-        if (bytes != null) MemoryUtil.memFree(bytes);
-        bytes = MemoryUtil.memAlloc(Math.max(65536, Integer.highestOneBit(required - 1) << 1)).order(ByteOrder.nativeOrder());
-    }
-    private void line(float ax, float ay, float az, float bx, float by, float bz, int color, float width) {
-        // Clip the ribbon's center line before projection, including crosshair tracers.
-        float za = view.m02()*ax + view.m12()*ay + view.m22()*az + view.m32();
-        float zb = view.m02()*bx + view.m12()*by + view.m22()*bz + view.m32();
-        if (za > -.06f && zb > -.06f) return;
-        if (za > -.06f) {
-            float t = (-.06f - za) / (zb - za); ax += (bx-ax)*t; ay += (by-ay)*t; az += (bz-az)*t;
-        } else if (zb > -.06f) {
-            float t = (-.06f - zb) / (za - zb); bx += (ax-bx)*t; by += (ay-by)*t; bz += (az-bz)*t;
-        }
-        vertex(ax,ay,az,color,bx,by,bz,-1000,width);
-        vertex(ax,ay,az,color,bx,by,bz,1000,width);
-        vertex(bx,by,bz,color,ax,ay,az,-1000,-width);
-        vertex(bx,by,bz,color,ax,ay,az,1000,-width);
+    private void line(float ax, float ay, float az, float bx, float by, float bz, int color, float width, int side) {
+        vertex(ax,ay,az,color,bx,by,bz,-side,width);
+        vertex(ax,ay,az,color,bx,by,bz,side,width);
+        vertex(bx,by,bz,color,ax,ay,az,-side,-width);
+        vertex(bx,by,bz,color,ax,ay,az,side,-width);
     }
     private void vertex(float x, float y, float z, int color, float otherX, float otherY, float otherZ, int side, float width) {
         bytes.putFloat(x).putFloat(y).putFloat(z);
@@ -160,38 +160,58 @@ public final class BlockEspRenderer implements AutoCloseable {
         bytes.putFloat(otherX).putFloat(otherY);
         int bits = Float.floatToRawIntBits(otherZ);
         bytes.putShort((short)bits).putShort((short)(bits>>>16));
-        bytes.putShort((short)side).putShort((short)(width*100)); vertices++;
+        bytes.putShort((short)side).putShort((short)(width*100));
+        bytes.putFloat(animationAlpha).putFloat(animationTime).putFloat(animationTarget);
+        // Corner signs recover the block center in the shader, keeping distance opacity uniform.
+        bytes.put((byte)(x < Math.round(x) ? -127 : 127)).put((byte)(y < Math.round(y) ? -127 : 127))
+            .put((byte)(z < Math.round(z) ? -127 : 127)).put((byte)0); vertices++;
     }
     public void draw(WorldRenderContext context) {
-        if (vertices == 0 || !module.enabled()) return;
-        if (gpu == null || gpu.size() < bytes.remaining()) {
-            if (gpu != null) gpu.close();
-            gpu = new MappableRingBuffer(() -> "Scrimmy BlockESP vertices", GpuBuffer.USAGE_VERTEX | GpuBuffer.USAGE_MAP_WRITE, bytes.capacity());
-        }
+        if (count == 0 || !module.enabled()) return;
         var encoder = RenderSystem.getDevice().createCommandEncoder();
-        try (var mapped = encoder.mapBuffer(gpu.currentBuffer().slice(0, bytes.remaining()), false, true)) { mapped.data().put(bytes); bytes.rewind(); }
+        if (upload) {
+            if (gpu == null || gpu.size() < bytes.remaining()) {
+                if (gpu != null) gpu.close();
+                gpu = RenderSystem.getDevice().createBuffer(LABEL, GpuBuffer.USAGE_VERTEX | GpuBuffer.USAGE_COPY_DST, bytes.capacity());
+            }
+            encoder.writeToBuffer(gpu.slice(0, bytes.remaining()), bytes); bytes.rewind(); upload = false;
+        }
         var sequential = RenderSystem.getSequentialBuffer(VertexFormat.Mode.QUADS);
         var indices = sequential.getBuffer(vertices / 4 * 6);
         var target = Minecraft.getInstance().getMainRenderTarget();
         viewport.set(target.width, target.height, 1, 1);
-        var normal = RenderSystem.getDynamicUniforms().writeTransform(view, viewport, zero, identity);
-        viewport.z = hiddenOpacity;
-        var hidden = RenderSystem.getDynamicUniforms().writeTransform(view, viewport, zero, identity);
-        try (var pass = encoder.createRenderPass(() -> "Scrimmy BlockESP", target.getColorTextureView(), OptionalInt.empty(), target.getDepthTextureView(), OptionalDouble.empty())) {
-            pass.setPipeline(PIPELINES[throughWalls && !dimOccluded ? 1 : 0]);
+        var normal = RenderSystem.getDynamicUniforms().writeTransform(modelView, viewport, zero, parameters);
+        viewport.z = (float)BlockESPModule.HIDDEN_OPACITY;
+        var hidden = RenderSystem.getDynamicUniforms().writeTransform(modelView, viewport, zero, parameters);
+        try (var pass = encoder.createRenderPass(LABEL, target.getColorTextureView(), OptionalInt.empty(), target.getDepthTextureView(), OptionalDouble.empty())) {
+            pass.setPipeline(PIPELINES[throughWalls && !BlockESPModule.DIM_OCCLUDED ? 1 : 0]);
             RenderSystem.bindDefaultUniforms(pass);
-            pass.setVertexBuffer(0, gpu.currentBuffer()); pass.setIndexBuffer(indices, sequential.type());
-            if (throughWalls && dimOccluded) {
-                pass.setPipeline(PIPELINES[2]); pass.setUniform("DynamicTransforms", hidden); pass.drawIndexed(0, 0, vertices / 4 * 6, 1);
+            pass.setVertexBuffer(0, gpu); pass.setIndexBuffer(indices, sequential.type());
+            if (throughWalls && BlockESPModule.DIM_OCCLUDED) {
+                pass.setPipeline(PIPELINES[2]); pass.setUniform("DynamicTransforms", hidden); drawRanges(pass);
             }
-            pass.setPipeline(PIPELINES[throughWalls && !dimOccluded ? 1 : 0]);
-            pass.setUniform("DynamicTransforms", normal); pass.drawIndexed(0, 0, vertices / 4 * 6, 1);
+            pass.setPipeline(PIPELINES[throughWalls && !BlockESPModule.DIM_OCCLUDED ? 1 : 0]);
+            pass.setUniform("DynamicTransforms", normal); drawRanges(pass);
         }
-        gpu.rotate();
+    }
+    private void drawRanges(RenderPass pass) {
+        int stride = blockVertices / 4 * 6;
+        int first = -1, length = 0;
+        // Far to near, coalescing adjacent cached blocks into a single draw where possible.
+        for (int j = count - 1; j >= 0; j--) {
+            int index = (int)order[j] * stride;
+            int size = boxIndices + (module.tracers.get() && j < BlockESPModule.MAX_TRACERS ? 6 : 0);
+            if (first >= 0 && first + length == index) length += size;
+            else {
+                if (first >= 0) pass.drawIndexed(0, first, length, 1);
+                first = index; length = size;
+            }
+        }
+        if (first >= 0) pass.drawIndexed(0, first, length, 1);
     }
     private static int alpha(int color, double factor) { return ((int)Math.min(255, (color>>>24)*Math.max(0, factor))<<24) | (color & 0xffffff); }
     @Override public void close() {
-        vertices = 0; lastFrame = 0;
+        count = vertices = 0; dirty = true; revision = Long.MIN_VALUE;
         if (gpu != null) gpu.close(); gpu = null;
         if (bytes != null) MemoryUtil.memFree(bytes); bytes = null;
     }

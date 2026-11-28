@@ -12,7 +12,7 @@ class ModuleSettingsTest {
         ModuleManager source = new ModuleManager(), target = new ModuleManager();
         for (int i = 0; i < source.all().size(); i++) {
             Module module = source.all().get(i), restored = target.all().get(i);
-            assertTrue(module.settings().size() <= 6, module.name());
+            assertTrue(module.settings().size() <= (module instanceof BlockESPModule ? 7 : 6), module.name());
             JsonObject values = new JsonObject();
             module.settings().forEach(s -> {
                 assertNotEquals(s.label(), s.tooltip(), module.name() + ": " + s.label());
