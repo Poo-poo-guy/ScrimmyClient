@@ -97,12 +97,12 @@ public final class LogoutGhosts extends Module implements LogoutGhostTracker.Lis
     @Override public void created(Ghost ghost) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
-        if (notifyChat.get()) mc.player.displayClientMessage(Component.literal("[LogoutGhosts] " + ghost.name + " · " + ghost.status.label
+        if (notifyChat.get()) mc.player.displayClientMessage(com.scrimmy.client.render.ClientFonts.component("[LogoutGhosts] " + ghost.name + " · " + ghost.status.label
             + " at " + Math.round(ghost.x) + ", " + Math.round(ghost.y) + ", " + Math.round(ghost.z) + " (" + ghost.dimension.identifier() + ")"), false);
         if (sound.get()) mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.AMETHYST_BLOCK_CHIME, CHIME_PITCH, CHIME_VOLUME));
     }
     @Override public void vanished(Snapshot snapshot) {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player != null) mc.player.displayClientMessage(Component.literal("[LogoutGhosts] " + snapshot.name + " disappeared from tab but is still nearby."), false);
+        if (mc.player != null) mc.player.displayClientMessage(com.scrimmy.client.render.ClientFonts.component("[LogoutGhosts] " + snapshot.name + " disappeared from tab but is still nearby."), false);
     }
 }

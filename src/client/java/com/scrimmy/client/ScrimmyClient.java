@@ -22,8 +22,21 @@ public final class ScrimmyClient implements ClientModInitializer {
     private final Set<Integer> sampledKeys = new HashSet<>(), pressedKeys = new HashSet<>();
 
     @Override public void onInitializeClient() {
+        com.scrimmy.client.notification.NotificationAudio.initialize();
         CONFIG.load();
+        var resources = net.fabricmc.fabric.api.resource.v1.ResourceLoader.get(net.minecraft.server.packs.PackType.CLIENT_RESOURCES);
+        var uiReload = net.minecraft.resources.Identifier.fromNamespaceAndPath("scrimmyclient", "ui");
+        resources.registerReloader(uiReload, (net.minecraft.server.packs.resources.ResourceManagerReloadListener) manager -> {
+            com.scrimmy.client.render.PanelBlur.release();
+            com.scrimmy.client.render.ClientFonts.reload();
+        });
+        resources.addReloaderOrdering(net.fabricmc.fabric.api.resource.v1.reloader.ResourceReloaderKeys.Client.FONTS, uiReload);
+        net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
+            com.scrimmy.client.render.PanelBlur.release();
+            com.scrimmy.client.render.ClientFonts.close();
+        });
         MODULES.all().forEach(Module::initialize);
+        MODULES.onToggle(com.scrimmy.client.notification.NotificationCenter::moduleToggled);
         ClientTickEvents.END_CLIENT_TICK.register(this::tick);
     }
 
@@ -34,9 +47,11 @@ public final class ScrimmyClient implements ClientModInitializer {
         if (pressed(client, guiKey) && client.screen == null) client.setScreen(new ClickGui(THEME, MODULES, CONFIG));
         for (Module module : MODULES.all()) {
             int key = module.keybind();
-            if (key >= 0 && key != guiKey && pressed(client, key) && client.screen == null) module.toggle();
+            if (key >= 0 && key != guiKey && pressed(client, key) && client.screen == null) module.toggle(Module.ToggleSource.KEYBIND);
         }
         MODULES.tick(client);
+        com.scrimmy.client.notification.NotificationCenter.tick();
+        com.scrimmy.client.notification.NotificationAudio.flush();
         CONFIG.tick();
     }
 

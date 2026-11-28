@@ -24,13 +24,15 @@ public final class WorldOverlayRenderer implements AutoCloseable {
     private static final VertexFormat FORMAT = VertexFormat.builder()
             .add("Position", VertexFormatElement.POSITION).add("Color", VertexFormatElement.COLOR)
             .add("UV0", VertexFormatElement.UV0).add("UV1", VertexFormatElement.UV1).add("UV2", VertexFormatElement.UV2).build();
-    private static final RenderPipeline PIPELINE = RenderPipelines.register(RenderPipeline.builder()
-            .withLocation(Identifier.fromNamespaceAndPath("scrimmyclient", "pipeline/world_overlay"))
+    private static final RenderPipeline PIPELINE = pipeline(true), DEPTH_PIPELINE = pipeline(false);
+    private static RenderPipeline pipeline(boolean throughWalls) { return RenderPipelines.register(RenderPipeline.builder()
+            .withLocation(Identifier.fromNamespaceAndPath("scrimmyclient", throughWalls ? "pipeline/world_overlay" : "pipeline/world_overlay_depth"))
             .withVertexShader(Identifier.fromNamespaceAndPath("scrimmyclient", "core/block_esp"))
             .withFragmentShader(Identifier.fromNamespaceAndPath("scrimmyclient", "core/block_esp"))
             .withUniform("DynamicTransforms", UniformType.UNIFORM_BUFFER).withUniform("Projection", UniformType.UNIFORM_BUFFER)
             .withVertexFormat(FORMAT, VertexFormat.Mode.QUADS).withCull(false).withDepthWrite(false)
-            .withDepthTestFunction(DepthTestFunction.NO_DEPTH_TEST).withBlend(BlendFunction.TRANSLUCENT).build());
+            .withDepthTestFunction(throughWalls ? DepthTestFunction.NO_DEPTH_TEST : DepthTestFunction.LEQUAL_DEPTH_TEST)
+            .withBlend(BlendFunction.TRANSLUCENT).build()); }
     private final Matrix4f view = new Matrix4f(), identity = new Matrix4f();
     private final Vector4f viewport = new Vector4f();
     private final Vector3f zero = new Vector3f();
@@ -71,6 +73,9 @@ public final class WorldOverlayRenderer implements AutoCloseable {
         bytes.putShort((short)side).putShort((short)(width * 100)); vertices++;
     }
     public void draw(WorldRenderContext context) {
+        draw(context, true);
+    }
+    public void draw(WorldRenderContext context, boolean throughWalls) {
         if (vertices == 0) return;
         bytes.limit(vertices * FORMAT.getVertexSize()).position(0);
         if (gpu == null || gpu.size() < bytes.remaining()) {
@@ -88,7 +93,7 @@ public final class WorldOverlayRenderer implements AutoCloseable {
         var transform = RenderSystem.getDynamicUniforms().writeTransform(view, viewport, zero, identity);
         try (var pass = encoder.createRenderPass(label, target.getColorTextureView(), OptionalInt.empty(),
                 target.getDepthTextureView(), OptionalDouble.empty())) {
-            pass.setPipeline(PIPELINE); RenderSystem.bindDefaultUniforms(pass);
+            pass.setPipeline(throughWalls ? PIPELINE : DEPTH_PIPELINE); RenderSystem.bindDefaultUniforms(pass);
             pass.setVertexBuffer(0, gpu.currentBuffer()); pass.setIndexBuffer(indices, sequential.type());
             pass.setUniform("DynamicTransforms", transform); pass.drawIndexed(0, 0, vertices / 4 * 6, 1);
         }

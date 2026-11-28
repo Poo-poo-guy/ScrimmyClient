@@ -7,9 +7,42 @@ public final class ModuleSettings {
     private static final String[] BLOCK_GROUPS = {"Storage", "Ores", "Ancient Debris", "Spawners", "Portals", "Beds", "Respawn Anchors"};
     private ModuleSettings() {}
 
+    /** The canonical key wins if a config contains both names. */
+    public static JsonObject entry(JsonObject modules, String name) {
+        JsonElement value = modules.get(name);
+        if (value == null && name.equals("ChunkFinder")) value = modules.get("Basefinding");
+        return value != null && value.isJsonObject() ? value.getAsJsonObject() : new JsonObject();
+    }
+
+    public static JsonObject appearance(JsonObject source) {
+        JsonObject values = source.deepCopy();
+        if (!values.has("animation") && values.has("easing"))
+            values.addProperty("animation", "Bouncy".equals(string(values, "easing", "Smooth")) ? "Spring" : "Smooth");
+        return values;
+    }
+
+    /** Lift the retired module's controls into ScrimmyClient+; each new canonical key wins. */
+    public static JsonObject appearance(JsonObject source, JsonObject modules) {
+        JsonObject values = appearance(source);
+        JsonObject legacy = entry(modules, "Notifications");
+        if (!values.has("notificationsEnabled") && legacy.has("enabled"))
+            values.add("notificationsEnabled", legacy.get("enabled").deepCopy());
+        JsonElement oldSettings = legacy.get("settings");
+        if (oldSettings != null && oldSettings.isJsonObject()) {
+            JsonObject old = oldSettings.getAsJsonObject();
+            for (String key : new String[]{"position", "duration", "source"}) {
+                String target = "notifications" + Character.toUpperCase(key.charAt(0)) + key.substring(1);
+                if (!values.has(target) && old.has(key)) values.add(target, old.get(key).deepCopy());
+            }
+        }
+        if (!values.has("notificationsOpacity") && source.has("opacity"))
+            values.add("notificationsOpacity", source.get("opacity").deepCopy());
+        return values;
+    }
+
     public static JsonObject migrate(String module, JsonObject source) {
         JsonObject values = source.deepCopy();
-        if (module.equals("Basefinding")) {
+        if ((module.equals("ChunkFinder") || module.equals("Basefinding"))) {
             if (!values.has("cfRange") && values.has("cfDistance")) {
                 try { values.addProperty("cfRange", values.get("cfDistance").getAsDouble() / 16); }
                 catch (RuntimeException ignored) { }

@@ -96,8 +96,8 @@ public final class LogoutGhostRenderer implements AutoCloseable {
             v.status = ghost.status.label + " · " + seconds / 60 + ":" + (seconds % 60 < 10 ? "0" : "") + seconds % 60 + " ago";
             v.detail = distance + " blocks";
             v.position = Math.round(ghost.x) + ", " + Math.round(ghost.y) + ", " + Math.round(ghost.z);
-            v.nameWidth = mc.font.width(v.name); v.statusWidth = mc.font.width(v.status);
-            v.detailWidth = mc.font.width(v.detail); v.positionWidth = mc.font.width(v.position);
+            v.nameWidth = ClientFonts.width(v.name); v.statusWidth = ClientFonts.width(v.status);
+            v.detailWidth = ClientFonts.width(v.detail); v.positionWidth = ClientFonts.width(v.position);
             v.width = Math.max(v.nameWidth, Math.max(v.statusWidth, v.detailWidth));
             if (v.coordinates) v.width = Math.max(v.width, v.positionWidth);
             v.height = LABEL_PADDING * 2 + LABEL_LINE_HEIGHT * (v.coordinates ? 4 : 3);
@@ -210,6 +210,10 @@ public final class LogoutGhostRenderer implements AutoCloseable {
             Visual v = projected[i];
             if (LogoutGhosts.SHOW_HEAD) g.guiRenderState.submitPicturesInPictureState(v.head);
             if (!LogoutGhosts.SHOW_LABEL) continue;
+            v.nameWidth = ClientFonts.width(v.name); v.statusWidth = ClientFonts.width(v.status);
+            v.detailWidth = ClientFonts.width(v.detail); v.positionWidth = ClientFonts.width(v.position);
+            v.width = Math.max(v.nameWidth, Math.max(v.statusWidth, v.detailWidth));
+            if (v.coordinates) v.width = Math.max(v.width, v.positionWidth);
             float half = (v.width / 2f + LABEL_PADDING) * v.scale;
             float x = Math.max(half, Math.min(screenWidth - half, v.x));
             float y = Math.max(0, Math.min(screenHeight - v.height * v.scale, v.y));
@@ -218,10 +222,10 @@ public final class LogoutGhostRenderer implements AutoCloseable {
             v.panel.draw(g, v.width + LABEL_PADDING * 2, v.height, PANEL_RADIUS,
                 alpha(PANEL_COLOR, v.opacity), alpha((PANEL_BORDER_ALPHA << 24) | (v.color & 0xffffff), v.opacity), alpha(PANEL_SHADOW, v.opacity), viewport);
             int textColor = (Math.min(255, (int)(255 * v.opacity)) << 24) | (v.color & 0xffffff);
-            g.drawString(mc.font, v.name, -v.nameWidth / 2, LABEL_PADDING, textColor, false);
-            g.drawString(mc.font, v.status, -v.statusWidth / 2, LABEL_PADDING + LABEL_LINE_HEIGHT, textColor, false);
-            g.drawString(mc.font, v.detail, -v.detailWidth / 2, LABEL_PADDING + LABEL_LINE_HEIGHT * 2, textColor, false);
-            if (v.coordinates) g.drawString(mc.font, v.position, -v.positionWidth / 2, LABEL_PADDING + LABEL_LINE_HEIGHT * 3, textColor, false);
+            ClientFonts.draw(g, v.name, -ClientFonts.widthExact(v.name) / 2f, LABEL_PADDING, textColor);
+            ClientFonts.draw(g, v.status, -ClientFonts.widthExact(v.status) / 2f, LABEL_PADDING + LABEL_LINE_HEIGHT, textColor);
+            ClientFonts.draw(g, v.detail, -ClientFonts.widthExact(v.detail) / 2f, LABEL_PADDING + LABEL_LINE_HEIGHT * 2, textColor);
+            if (v.coordinates) ClientFonts.draw(g, v.position, -ClientFonts.widthExact(v.position) / 2f, LABEL_PADDING + LABEL_LINE_HEIGHT * 3, textColor);
             g.pose().popMatrix();
         }
     }

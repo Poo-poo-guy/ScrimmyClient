@@ -83,7 +83,7 @@ final class DrillTrailNametags {
                 tag.text=best<=TrailMemory.VISIT_RADIUS*TrailMemory.VISIT_RADIUS
                         ? Math.round(remaining)+(aheadFrontier?"+":"")+" blocks ahead"
                         : Math.round(tunnel.length())+(tunnel.frontier()?"+":"")+" blocks";
-                tag.labelWidth=mc.font.width(tag.label);tag.textWidth=mc.font.width(tag.text);
+                tag.labelWidth=ClientFonts.width(tag.label);tag.textWidth=ClientFonts.width(tag.text);
                 nearest.add(tag);
             }
             nearest.sort(Comparator.comparingDouble((Tag t)->t.distance).thenComparingDouble(t->-t.length));
@@ -123,6 +123,7 @@ final class DrillTrailNametags {
         for(Tag t:tags) {
             if(!t.projected||t.opacity<.01||placed>=MAX_TAGS)continue;
             float x=(t.screenX+1)*screenWidth/2f,y=(1-t.screenY)*screenHeight/2f+(float)((1-t.alpha)*6);
+            t.labelWidth=ClientFonts.width(t.label); t.textWidth=ClientFonts.width(t.text);
             int width=Math.max(t.labelWidth,t.textWidth)+16;
             float half=width*t.scale/2,height=30*t.scale;
             boolean overlap=false;
@@ -133,13 +134,13 @@ final class DrillTrailNametags {
             if(overlap||x-half<0||x+half>screenWidth||y<0||y+height>screenHeight)continue;
             int b=placed++*4;bounds[b]=x-half;bounds[b+1]=y;bounds[b+2]=x+half;bounds[b+3]=y+height;
             int tint=ScrimmyClient.THEME.glassTint.get();
-            int background=(tint&0xffffff)|((int)(ScrimmyClient.THEME.opacity.get()*255)<<24);
+            int background=ThemeSurfaces.fill();
             int lengthTint=GradientSetting.mix(0xff819ab7,accent,Math.min(1,t.length/160));
             g.pose().pushMatrix();g.pose().translate(x,y);g.pose().scale(t.scale,t.scale);
             t.panel.draw(g,width,30,Math.min(15,ScrimmyClient.THEME.radius.get().intValue()+4),
                     alpha(background,t.opacity),alpha(accent,t.opacity*.25),alpha(0x40000000,t.opacity),screen,blur.texture());
-            g.drawString(mc.font,t.label,-t.labelWidth/2,4,alpha(0xffc4d3e3,t.opacity),false);
-            g.drawString(mc.font,t.text,-t.textWidth/2,17,alpha(lengthTint,t.opacity),false);
+            ClientFonts.draw(g, t.label, -ClientFonts.widthExact(t.label) / 2f,4,alpha(0xffc4d3e3,t.opacity));
+            ClientFonts.draw(g, t.text, -ClientFonts.widthExact(t.text) / 2f,17,alpha(lengthTint,t.opacity));
             g.pose().popMatrix();
         }
     }
